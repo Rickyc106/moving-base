@@ -1,10 +1,16 @@
 import math
-from std_msgs.msg import Float32
+from sensor_msgs.msg import Joy
 import rospy
 
 ### Initial variables
 rotate_mag = 5
 rotate_angle = [45, 135, 225, 315]
+
+axes_len = 6
+buttons_len = 17
+
+axes_array = [0] * axes_len
+buttons_array = [0] * buttons_len
 
 def calculate_vectors(theta_yaw, trans_mag, trans_angle, rotate_dir):
 	for i in range(4):
@@ -20,6 +26,23 @@ def calculate_vectors(theta_yaw, trans_mag, trans_angle, rotate_dir):
 		wheel_mag[i] = x_bar**2 + y_bar**2
 		wheel_angle[i] = math.atan2(y_bar, x_bar)
 
+def xbox_callback(data):
+	#print "Axes [Analog]: ", str(data.axes)
+	#print "Buttons [Digital]: ", str(data.buttons)
+	#print ""
+
+	global axes_array
+	global buttons_array
+
+	for i in range(axes_len):
+		axes_array[i] = data.axes[i]
+
+	for i in range(buttons_len):
+		buttons_array[i] = data.buttons[i]
+
+	#print(str(axes_array[0]))
+
+
 def xbox_read():
 	### Read the following inputs from controller/keyboard
 	# 1) Float - Translation magnitude (pos away from dead center)
@@ -28,6 +51,22 @@ def xbox_read():
 	#
 	# Return all three as floats 
 	###
+
+	# Axes: [left_x, left_y, left_trigger, right_x, right_y, right_trigger]
+	# Buttons: [X, O, ^, [], left_bumper, right_bumper, left_trigger, right_trigger, select,
+	#			start, PS, left_joy_press, right_joy_press, up, down, left, right]
+
+	rospy.init_node('testing_motor', anonymous=True)
+	rospy.Subscriber('joy',  Joy, xbox_callback)
+
+	while not rospy.is_shutdown():
+		print "Axes [Analog]", str(axes_array)
+		print "Buttons [Digital]", str(buttons_array)
+		print ""
+
+
+	rospy.spin()
+
 
 def yaw_callback(data):
 	global yaw_angle
@@ -48,11 +87,6 @@ def publisher():
 
 if __name__ == '__main__':
 	try:
-		publisher()
+		xbox_read()
 	except rospy.ROSInterruptException:
 		pass
-
-
-
-
-
