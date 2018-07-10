@@ -5,14 +5,22 @@ find_package(catkin REQUIRED COMPONENTS
 	rospy
 	std_msgs
 	rosserial_python
+	message_generation
 )
 
-# add_message_files(
-#   FILES
-#   joy_queued.msg
-# )
+  add_message_files(
+    FILES
+    arduino_status.msg
+  )
 
-catkin_package()
+  generate_messages(
+  	DEPENDENCIES
+  	std_msgs
+  )
+
+catkin_package(
+	CATKIN_DEPENDS message_runtime
+)
 
 include_directories(
   ${catkin_INCLUDE_DIRS}

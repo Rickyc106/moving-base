@@ -4,6 +4,7 @@
 #include <std_msgs/Int32.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
+#include <moving_base/arduino_status.h>
 
 ros::NodeHandle nh;
 
@@ -28,6 +29,8 @@ std_msgs::Float32 left_joy;
 std_msgs::Float32MultiArray steer_motor;
 std_msgs::Float32MultiArray drive_motor;
 
+moving_base::arduino_status stats;
+
 //sensor_msgs::Joy joy_msg;
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
@@ -37,6 +40,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
   angle = atan2(msg.axes[1], -msg.axes[0]);
   angle *= (180 / 3.141592653);
   left_joy.data = angle;
+  stats.steer_angle = angle;
 
   if (buttons[4] && !buttons[5]) {
     CCW = true;
@@ -52,6 +56,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
 ros::Publisher counter_pub("counter", &counter);
 ros::Publisher steer_pub("steer_angle", &left_joy);
+ros::Publisher status_pub("arduino_status", &stats);
 //ros::Publisher joy_pub("joy_arduino", &joy_msg);
 
 void setup() {
@@ -62,6 +67,7 @@ void setup() {
   nh.subscribe(joy_sub);
   nh.advertise(counter_pub);
   nh.advertise(steer_pub);
+  nh.advertise(status_pub);
   //nh.advertise(joy_pub);
 }
 
@@ -75,6 +81,7 @@ void loop() {
 
   counter_pub.publish(&counter);
   steer_pub.publish(&left_joy);
+  status_pub.publish(&stats);
   //joy_pub.publish(&joy_msg);
   
   nh.spinOnce();
