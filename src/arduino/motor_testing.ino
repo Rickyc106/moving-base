@@ -2,12 +2,20 @@
 #include <math.h>
 #include <sensor_msgs/Joy.h>
 #include <std_msgs/Float32.h>
+#include <std_msgs/Float32MultiArray.h>
 //#include <moving_base/arduino_status.h>
 
 ros::NodeHandle nh;
 
-float angle;
-double resultant;
+double steer_angle;
+double x, y;
+double steer_mag;
+
+double rotate_angle[4];
+double rotate_mag[4];
+
+double res_x, res_y;
+float resultant[4];
 
 float error;
 float sum;
@@ -20,19 +28,30 @@ bool CCW, no_rotate;
 bool forwards[4];
 
 std_msgs::Float32 temp;
+std_msgs::Float32MultiArray temp_array;
 //moving_base::arduino_status stats;
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
-  angle = atan2(msg.axes[1], -msg.axes[0]);
-  angle *= (180 / 3.141592653);
+  steer_angle = atan2(msg.axes[1], -msg.axes[0]);
 
-  resultant = sqrt(sq(msg.axes[1]) + sq(msg.axes[0]));
-  
-  //if (resultant > 1.0) resultant = 1.0;      // Crude solution for now...
-  // if (sin(angle) > cos(angle)) resultant -= sin(angle) * (resultant - 1.0); 
-  // else if (cos(angle) > sin(angle)) resultant -= cos(angle) * (resultant - 1.0); 
-  
-  temp.data = resultant;
+  // DO ALL TRIG MATH HERE ------------------------------------------------------------
+
+  x = cos(steer_angle) * -msg.axes[0];
+  y = sin(steer_angle) * msg.axes[1];
+
+  steer_mag = sqrt(x*x + y*y);
+
+  for (int i = 0; i < 4; i++) {
+    rotate_mag[i] = 1.0;
+    resultant[i] = vector_sum(steer_angle, steer_mag, rotate_angle[i], rotate_mag[i]);
+  }
+
+  // FINISH TRIG MATH -----------------------------------------------------------------
+
+  steer_angle *= (180 / 3.141592653);
+
+  temp_array.data = resultant;
+  temp.data = resultant[0];
   //stats.steer_angle = angle;
 
   if (msg.buttons[4] && !msg.buttons[5]) {
@@ -48,24 +67,28 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
 ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
 ros::Publisher temp_pub("temp_data", &temp);
+ros::Publisher temp_array_pub("temp_array_data", &temp_array);
 //ros::Publisher status_pub("arduino_status", &stats);
 
 void setup() {
   //nh.getHardware()->setBaud(115200); // Default 57600
-  
+
+  initialize();
   nh.initNode();
   
   nh.subscribe(joy_sub);
   nh.advertise(temp_pub);
+  nh.advertise(temp_array_pub);
   //nh.advertise(status_pub);
 }
 
 void loop() {
   temp_pub.publish(&temp);
+  temp_array_pub.publish(&temp_array);
   //status_pub.publish(&stats);
   
   nh.spinOnce();
-  //delay(1);
+  //delay(100);
 }
 
 void PID(float setpoint, float current_angle) {
@@ -104,4 +127,24 @@ void initialize() {
   }
 }
 */
+
+void initialize() {
+  temp_array.layout.dim[0].size = 4;
+  temp_array.layout.dim[0].stride = 1*8;
+  temp_array.layout.data_offset = 0;
+  temp_array.layout.dim_length = 1;
+  temp_array.data_length = 4;
+  
+  rotate_angle[0] -= 45;
+  rotate_angle[1] += 45;
+  rotate_angle[2] -= 45;
+  rotate_angle[3] += 45;
+}
+
+float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float rotate_mag) {
+  res_x = (steer_mag * cos(steer_angle)) + (rotate_mag * cos(rotate_angle));
+  res_y = (steer_mag * sin(steer_angle)) + (rotate_mag * sin(rotate_angle));
+
+  return sqrt(res_x*res_x + res_y*res_y);
+}
 
