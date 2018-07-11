@@ -129,9 +129,12 @@ void initialize() {
 */
 
 void initialize() {
+  temp_array.layout.dim = (std_msgs::MultiArrayDimension *)
+  malloc(sizeof(std_msgs::MultiArrayDimension) * 2);
   temp_array.layout.dim[0].size = 4;
-  temp_array.layout.dim[0].stride = 1*8;
+  temp_array.layout.dim[0].stride = 1*4;
   temp_array.layout.data_offset = 0;
+  temp_array.data = (float *)malloc(sizeof(float)*4);
   temp_array.layout.dim_length = 1;
   temp_array.data_length = 4;
   
