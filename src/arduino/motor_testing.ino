@@ -3,7 +3,7 @@
 #include <sensor_msgs/Joy.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
-//#include <moving_base/arduino_status.h>
+#include <moving_base/arduino_status.h>
 #include <tf/tf.h>
 
 ros::NodeHandle nh;
@@ -56,11 +56,11 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   for (int i = 0; i < 4; i++) {
     if (CCW && !no_rotate) {
-      rotate_angle[i] += M_PI / 180;
+      rotate_angle[i] += M_PI / 22.5;
       rotate_mag[i] = 1.0;
     }
     else if (!CCW && !no_rotate) {
-      rotate_angle[i] -= M_PI / 180;
+      rotate_angle[i] -= M_PI / 22.5;
       rotate_mag[i] = 1.0;
     }
 
@@ -82,7 +82,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
   temp_array.data = resultant_angle;
   //array_angle.data = rotate_angle;
   temp.data = rotate_angle[0] * (180 / M_PI);
-  //stats.steer_angle = angle;
+  //stats.steer_angle = steer_angle;
 }
 
 ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
