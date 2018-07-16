@@ -30,8 +30,9 @@ bool CCW, no_rotate;
 bool forwards[4];
 
 std_msgs::Float32 temp;
+std_msgs::Float32 testing;
 std_msgs::Float32MultiArray temp_array;
-//std_msgs::Float32MultiArray array_angle;
+std_msgs::Float32MultiArray mag_array;
 //moving_base::arduino_status stats;
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
@@ -80,15 +81,17 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
   steer_angle *= (180 / 3.141592653);
 
   temp_array.data = resultant_angle;
-  //array_angle.data = rotate_angle;
+  testing.data = resultant[0];
+  mag_array.data = resultant;
   temp.data = rotate_angle[0] * (180 / M_PI);
   //stats.steer_angle = steer_angle;
 }
 
 ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
 ros::Publisher temp_pub("temp_data", &temp);
+ros::Publisher testing_pub("testing", &testing);
 ros::Publisher temp_array_pub("temp_array_data", &temp_array);
-//ros::Publisher array_angle_pub("array_angle", &array_angle);
+ros::Publisher mag_array_pub("mag_array_data", &mag_array);
 //ros::Publisher status_pub("arduino_status", &stats);
 
 void setup() {
@@ -99,15 +102,17 @@ void setup() {
 
   nh.subscribe(joy_sub);
   nh.advertise(temp_pub);
+  nh.advertise(testing_pub);
   nh.advertise(temp_array_pub);
-  //nh.advertise(array_angle_pub);
+  nh.advertise(mag_array_pub);
   //nh.advertise(status_pub);
 }
 
 void loop() {
   temp_pub.publish(&temp);
+  testing_pub.publish(&testing);
   temp_array_pub.publish(&temp_array);
-  //array_angle_pub.publish(&array_angle);
+  //mag_array_pub.publish(&mag_array);
   //status_pub.publish(&stats);
 
   nh.spinOnce();
@@ -165,6 +170,7 @@ void initialize() {
 
   temp_array.data_length = 4;
   //array_angle.data_length = 4;
+  mag_array.data_length = 4;
 
   rotate_angle[0] -= M_PI / 4;
   rotate_angle[1] += M_PI / 4;
@@ -178,6 +184,8 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
 
   resultant_angle[counter] = atan2(res_y, res_x);
   resultant_angle[counter] *= 180 / M_PI;
+
+  //resultant_angle[counter + 4] = sqrt(res_x * res_x + res_y * res_y);
 
   return sqrt(res_x * res_x + res_y * res_y);
 }

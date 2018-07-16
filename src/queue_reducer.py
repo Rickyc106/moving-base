@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import rospy
 import tf
 
@@ -11,6 +13,10 @@ joy_msg = Joy()
 resultant = [0,0,0,0]
 pose_zero = [[0 for i in range(4)] for i in range(4)]
 quat = []
+
+rospy.set_param('joy_node/dev', '/dev/input/js1')
+rospy.set_param('joy_node/autorepeat_rate', 15)
+rospy.set_param('joy_node/deadzone', 0.0)
 
 def joy_cb(data):
 	joy_msg.axes = data.axes
