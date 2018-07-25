@@ -5,12 +5,13 @@
 #include <std_msgs/Float32MultiArray.h>
 #include <moving_base/arduino_status.h>
 #include <tf/tf.h>
+#include <Servo.h>
 
 ros::NodeHandle nh;
 
 float x, y;
 float steer_angle;
-float steer_mag;
+float steer_mag, val;
 
 float rotate_angle[4];
 float rotate_mag[4];
@@ -34,6 +35,23 @@ std_msgs::Float32 testing;
 std_msgs::Float32MultiArray temp_array;
 std_msgs::Float32MultiArray mag_array;
 //moving_base::arduino_status stats;
+
+// ------------------------------------------------------------------------------------
+
+// STEER MOTORS
+#define M8_pin 2;
+#define M9_pin 3;
+#define M10_pin 4;
+#define M11_pin 5;
+
+// DRIVE MOTORS
+#define M12_pin 6;
+#define M13_pin 7;
+#define M14_pin 8;
+#define M15_pin 9;
+
+Servo motors[8];
+unsigned long previousMillis = 0;
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
   steer_angle = atan2(msg.axes[1], -msg.axes[0]);
@@ -59,16 +77,19 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     if (CCW && !no_rotate) {
       rotate_angle[i] += M_PI / 22.5;
       rotate_mag[i] = 1.0;
+      val = 0.5;
     }
     else if (!CCW && !no_rotate) {
       rotate_angle[i] -= M_PI / 22.5;
       rotate_mag[i] = 1.0;
+      val = -0.5;
     }
 
     if (i == 0 || i == 1) rotate_mag[i] = -1.0;
 
     if (no_rotate) {
       rotate_mag[i] = 0.0;
+      val = 0.0;
     }
 
     if (steer_mag != 0.0 || rotate_mag[i] != 0.0) {
@@ -76,14 +97,24 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     }
   }
 
+  unsigned long currentMillis = millis();
+
+  motors[3].writeMicroseconds(1500 + (val * 500 * 0.35));
+  motors[7].writeMicroseconds(1500 + (msg.axes[1] * 500 * 0.35));
+
+  if (currentMillis - previousMillis > 20) {
+    previousMillis = currentMillis;
+  }
+  
   // FINISH TRIG MATH -----------------------------------------------------------------
 
   steer_angle *= (180 / 3.141592653);
 
-  temp_array.data = resultant_angle;
-  testing.data = resultant[0];
+  temp_array.data = resultant;
+  testing.data = 90 + msg.axes[1] * 90;
   mag_array.data = resultant;
-  temp.data = rotate_angle[0] * (180 / M_PI);
+  //temp.data = rotate_angle[0] * (180 / M_PI);
+  temp.data = 90 + val * 90;
   //stats.steer_angle = steer_angle;
 }
 
@@ -116,7 +147,6 @@ void loop() {
   //status_pub.publish(&stats);
 
   nh.spinOnce();
-  //delay(100);
 }
 
 void PID(float setpoint, float current_angle) {
@@ -176,6 +206,11 @@ void initialize() {
   rotate_angle[1] += M_PI / 4;
   rotate_angle[2] -= M_PI / 4;
   rotate_angle[3] += M_PI / 4;
+
+  for (int i = 0; i < 8; i++) {
+    motors[i].attach(i + 2);
+    pinMode(i + 2, OUTPUT);
+  }
 }
 
 float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float rotate_mag, int counter) {
