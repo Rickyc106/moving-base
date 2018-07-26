@@ -99,8 +99,8 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   unsigned long currentMillis = millis();
 
-  motors[3].writeMicroseconds(1500 + (val * 500 * 0.35));
-  motors[7].writeMicroseconds(1500 + (msg.axes[1] * 500 * 0.35));
+  motors[3].writeMicroseconds(1500 + (val * 500 * 1.45));    // STEER MOTOR
+  motors[7].writeMicroseconds(1500 + (msg.axes[1] * 500 * 0.15));   // DRIVE MOTOR -- 32 max right now
 
   if (currentMillis - previousMillis > 20) {
     previousMillis = currentMillis;
