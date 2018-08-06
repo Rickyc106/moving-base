@@ -53,18 +53,23 @@ std_msgs::Float32MultiArray mag_array;
 Servo motors[8];
 unsigned long previousMillis = 0;
 
+int var[4];
+float aState, bState, aPrev, bPrev, aCount, bCount;
+float drive_speed;
+float steer_speed;
+
 void xbox_cb(const sensor_msgs::Joy& msg) {
   steer_angle = atan2(msg.axes[1], -msg.axes[0]);
 
-  if (msg.buttons[4] && !msg.buttons[5]) {
+  if ((msg.buttons[4] && !msg.buttons[5]) || (msg.buttons[6] && !msg.buttons[7])) {
     CCW = true;
     no_rotate = false;
   }
-  if (msg.buttons[5] && !msg.buttons[4]) {
+  if ((msg.buttons[5] && !msg.buttons[4]) || (msg.buttons[7] && !msg.buttons[6])) {
     CCW = false;
     no_rotate = false;
   }
-  if (!msg.buttons[4] && !msg.buttons[5]) no_rotate = true;
+  if (!msg.buttons[4] && !msg.buttons[5] && !msg.buttons[6] && !msg.buttons[7]) no_rotate = true;
 
   // DO ALL TRIG MATH HERE ------------------------------------------------------------
 
@@ -77,19 +82,25 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     if (CCW && !no_rotate) {
       rotate_angle[i] += M_PI / 22.5;
       rotate_mag[i] = 1.0;
-      val = 0.5;
+
+      steer_speed = mapf(msg.axes[2], -1.0, 1.0, 1.0, 0);
+      //val = 0.5;
     }
     else if (!CCW && !no_rotate) {
       rotate_angle[i] -= M_PI / 22.5;
       rotate_mag[i] = 1.0;
-      val = -0.5;
+
+      steer_speed = mapf(msg.axes[5], -1.0, 1.0, -1.0, 0);
+      //val = -0.5;
     }
 
     if (i == 0 || i == 1) rotate_mag[i] = -1.0;
 
     if (no_rotate) {
       rotate_mag[i] = 0.0;
-      val = 0.0;
+
+      steer_speed = 0.0;
+      //val = 0.0;
     }
 
     if (steer_mag != 0.0 || rotate_mag[i] != 0.0) {
@@ -99,8 +110,19 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   unsigned long currentMillis = millis();
 
-  motors[3].writeMicroseconds(1500 + (val * 500 * 1.45));    // STEER MOTOR
-  motors[7].writeMicroseconds(1500 + (msg.axes[1] * 500 * 0.15));   // DRIVE MOTOR -- 32 max right now
+  //steer_speed = mapf(msg.axes[2], -1.0, 1.0, 1.0, 0);
+
+  drive_speed = msg.axes[1];
+
+  for (int i = 0; i < 4; i++) {
+    if (msg.buttons[i]) var[i] = i;
+    motor_debugging(var[i], steer_speed, drive_speed);
+  }
+
+  if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) motor_stop();
+
+  //motors[3].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
+  //motors[7].writeMicroseconds(1500 + (msg.axes[1] * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
 
   if (currentMillis - previousMillis > 20) {
     previousMillis = currentMillis;
@@ -110,11 +132,13 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   steer_angle *= (180 / 3.141592653);
 
+  temp.data = aCount;
+
   temp_array.data = resultant;
   testing.data = 90 + msg.axes[1] * 90;
   mag_array.data = resultant;
   //temp.data = rotate_angle[0] * (180 / M_PI);
-  temp.data = 90 + val * 90;
+  //temp.data = 90 + val * 90;
   //stats.steer_angle = steer_angle;
 }
 
@@ -211,6 +235,12 @@ void initialize() {
     motors[i].attach(i + 2);
     pinMode(i + 2, OUTPUT);
   }
+
+  pinMode(22, INPUT);
+  pinMode(23, INPUT);
+
+  attachInterrupt(22, read_encoder, RISING);
+  //attachInterrupt(23, read_encoder, RISING);
 }
 
 float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float rotate_mag, int counter) {
@@ -223,5 +253,45 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
   //resultant_angle[counter + 4] = sqrt(res_x * res_x + res_y * res_y);
 
   return sqrt(res_x * res_x + res_y * res_y);
+}
+
+void motor_debugging(int var, float val, float drive) {
+  switch (var) {
+    case 0:
+      motors[0].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
+      motors[4].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      break;
+    case 1:
+      motors[1].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
+      motors[5].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      break;
+    case 2:
+      motors[2].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
+      motors[6].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      break;
+    case 3:
+      motors[3].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
+      motors[7].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      break;
+  }  
+}
+
+void motor_stop() {
+  for (int i = 0; i < 4; i++) {
+    motors[i].writeMicroseconds(1500);    // STEER MOTOR -- 1.45 max
+    motors[i + 4].writeMicroseconds(1500);   // DRIVE MOTOR -- 32 max right now  
+
+    var[i] = 1000;  // Reset switch cases for all motors
+  }
+}
+
+void read_encoder(){
+  aCount++;
+  //if (value == 1) bCount++;
+}
+
+float mapf(float x, float in_min, float in_max, float out_min, float out_max)
+{
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
