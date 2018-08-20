@@ -6,6 +6,7 @@
 #include <moving_base/arduino_status.h>
 #include <tf/tf.h>
 #include <Servo.h>
+#include <avr/interrupt.h>
 
 ros::NodeHandle nh;
 
@@ -38,25 +39,22 @@ std_msgs::Float32MultiArray mag_array;
 
 // ------------------------------------------------------------------------------------
 
-// STEER MOTORS
-#define M8_pin 2;
-#define M9_pin 3;
-#define M10_pin 4;
-#define M11_pin 5;
-
-// DRIVE MOTORS
-#define M12_pin 6;
-#define M13_pin 7;
-#define M14_pin 8;
-#define M15_pin 9;
+bool enc_CW = false;
+bool enc_CCW = false;
+int CW_pulse, CCW_pulse;
+bool stop_signal = false;
 
 Servo motors[8];
 unsigned long previousMillis = 0;
+unsigned long currentMillis = 0;
 
 int var[4];
 float aState, bState, aPrev, bPrev, aCount, bCount;
 float drive_speed;
 float steer_speed;
+
+volatile float pulse_count[16];   // Steer: 0-7, Drive 8-15
+volatile int previous_pulse[16];   // Stores previous pulse -- One for each pair of quadrature signals
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
   steer_angle = atan2(msg.axes[1], -msg.axes[0]);
@@ -106,9 +104,14 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     if (steer_mag != 0.0 || rotate_mag[i] != 0.0) {
       resultant[i] = vector_sum(steer_angle, steer_mag, rotate_angle[i], rotate_mag[i], i);
     }
+
+    if ((msg.buttons[6] && (currentMillis - previousMillis > 5000)) || (msg.buttons[7] && (currentMillis - previousMillis > 5000))) {
+      stop_signal = true;
+      previousMillis = currentMillis;
+    }
   }
 
-  unsigned long currentMillis = millis();
+  currentMillis = millis();
 
   //steer_speed = mapf(msg.axes[2], -1.0, 1.0, 1.0, 0);
 
@@ -116,23 +119,27 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   for (int i = 0; i < 4; i++) {
     if (msg.buttons[i]) var[i] = i;
-    motor_debugging(var[i], steer_speed, drive_speed);
+    motor_debugging(var[i], steer_speed, drive_speed, stop_signal);
   }
 
   if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) motor_stop();
 
+  if (!msg.buttons[6] && !msg.buttons[7]) stop_signal = false;
+
   //motors[3].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
   //motors[7].writeMicroseconds(1500 + (msg.axes[1] * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
 
-  if (currentMillis - previousMillis > 20) {
+  /*
+    if (currentMillis - previousMillis > 20) {
     previousMillis = currentMillis;
-  }
-  
+    }
+  */
+
   // FINISH TRIG MATH -----------------------------------------------------------------
 
   steer_angle *= (180 / 3.141592653);
 
-  temp.data = aCount;
+  temp.data = pulse_count[10];
 
   temp_array.data = resultant;
   testing.data = 90 + msg.axes[1] * 90;
@@ -211,17 +218,6 @@ void PID(float setpoint, float current_angle) {
 */
 
 void initialize() {
-  /*
-    temp_array.layout.dim = (std_msgs::MultiArrayDimension *)
-    malloc(sizeof(std_msgs::MultiArrayDimension) * 2);
-    temp_array.layout.dim[0].size = 4;
-    temp_array.layout.dim[0].stride = 1*4;
-    temp_array.layout.data_offset = 0;
-    temp_array.data = (float *)malloc(sizeof(float)*4);
-    temp_array.layout.dim_length = 1;
-    temp_array.data_length = 4;
-  */
-
   temp_array.data_length = 4;
   //array_angle.data_length = 4;
   mag_array.data_length = 4;
@@ -230,17 +226,30 @@ void initialize() {
   rotate_angle[1] += M_PI / 4;
   rotate_angle[2] -= M_PI / 4;
   rotate_angle[3] += M_PI / 4;
+  
+  cli();  // Turn off interrupts temporarily
+
+  PCICR |= 0b00000101;  // PCICR - Pin Change Interrupt Control Register Mapping
+                        //
+                        // Bit 0 - Opens PCINT7:0
+                        // Bit 1 - Opens PCINT15:8
+                        // Bit 2 - Opens PCINT23:16
+                        //
+                        //Currently using PCINT23:16 and PCINT 7:0 aka bits 0 and 2
+
+  PCMSK0 |= 0b11111111; // Mask pins PCINT7:0 -- Arduino pins 10-13 & 50-53
+  PCMSK2 |= 0b11111111; // Mask pins PCINT 23:16 -- Arduino pins A8-A15
+
+  sei();  // Re-open interrupts
 
   for (int i = 0; i < 8; i++) {
-    motors[i].attach(i + 2);
-    pinMode(i + 2, OUTPUT);
+    motors[i].attach(i + 22);   // Attach motors -- Pins 22 -> 29
+    pinMode(i + 22, OUTPUT); // 22
+
+    if (i < 4) pinMode(i + 10, INPUT);   // Half of steer encoders -- Arduino Mega pins 10-13
+    else pinMode(i + 46, INPUT);   // Remaining half of steer encoders -- Arduino Mega pins 50-53
   }
 
-  pinMode(22, INPUT);
-  pinMode(23, INPUT);
-
-  attachInterrupt(22, read_encoder, RISING);
-  //attachInterrupt(23, read_encoder, RISING);
 }
 
 float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float rotate_mag, int counter) {
@@ -255,43 +264,102 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
   return sqrt(res_x * res_x + res_y * res_y);
 }
 
-void motor_debugging(int var, float val, float drive) {
+void motor_debugging(int var, float val, float drive, bool stopping_signal) {
   switch (var) {
     case 0:
-      motors[0].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
-      motors[4].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      motors[0].writeMicroseconds(1500 + (val * 500 * 0.35));    // STEER MOTOR -- 1.45 max
+      motors[1].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
       break;
     case 1:
-      motors[1].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
-      motors[5].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      motors[2].writeMicroseconds(1500 + (val * 500 * 0.35));    // STEER MOTOR -- 1.45 max
+      motors[3].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
       break;
     case 2:
-      motors[2].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
-      motors[6].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
+      //if (!stopping_signal) motors[2].writeMicroseconds(1500 + (val * 500 * 0.5));    // STEER MOTOR -- 1.45 max
+      motors[4].writeMicroseconds(1500 + (val * 500 * 0.35));    // STEER MOTOR -- 1.45 max
+      motors[5].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
       break;
     case 3:
-      motors[3].writeMicroseconds(1500 + (val * 500));    // STEER MOTOR -- 1.45 max
+      motors[6].writeMicroseconds(1500 + (val * 500 * 0.35));    // STEER MOTOR -- 1.45 max
       motors[7].writeMicroseconds(1500 + (drive * 500 * 0.35));   // DRIVE MOTOR -- 32 max right now
       break;
-  }  
+  }
 }
 
 void motor_stop() {
   for (int i = 0; i < 4; i++) {
     motors[i].writeMicroseconds(1500);    // STEER MOTOR -- 1.45 max
-    motors[i + 4].writeMicroseconds(1500);   // DRIVE MOTOR -- 32 max right now  
+    motors[i + 4].writeMicroseconds(1500);   // DRIVE MOTOR -- 32 max right now
 
     var[i] = 1000;  // Reset switch cases for all motors
   }
 }
 
-void read_encoder(){
-  aCount++;
-  //if (value == 1) bCount++;
+void read_encoder() {
+  if (digitalRead(22) && digitalRead(23) == 0) {
+    enc_CW = true;
+    CW_pulse++;
+  }
+  else if (digitalRead(22) && digitalRead(23) == 1) {
+    enc_CCW = true;
+    CCW_pulse++;
+  }
+  CW_pulse++;
+}
+
+// Following are Interrupt Service Routines -- Functions same as external interrupts
+// ... but only detects changes on specified port
+
+// First need to read which pin caused interrupt
+// Then whether or not it was falling or rising
+
+ISR(PCINT0_vect) {  // Port B, PCINT7:0
+  /*
+  for (int i = 0; i < 4; i += 2) {
+    if (!digitalRead(i) && previous_pulse[i + 1] == 0 && i < 4) enc_CW = true;
+    if (!digitalRead(i) && previous_pulse[i + 1] == 1 && i < 4) enc_CW = false;
+    
+    if (digitalRead(i) && previous_pulse[i + 1] == 1 && i < 4) enc_CW = true;
+    if (digitalRead(i) && previous_pulse[i + 1] == 0 && i < 4) enc_CW = false; 
+  }
+
+  for (int i = 0; i < 4; i++) {
+    pulse_count[i]++;
+    previous_pulse[i] = digitalRead(i + 50);
+  }
+  for (int i = 0; i < 4; i++) { 
+    pulse_count[i + 4]++;
+    previous_pulse[i + 4] = digitalRead(i + 10);
+  }
+  */
+
+  for (int i = 0; i < 8; i++) {
+    pulse_count[i]++;  
+
+    if (i % 2 && pulse_count[i] > pulse_count[i + 1]) enc_CW = true;
+    else if (i % 2 && pulse_count[i] < pulse_count[i + 1]) enc_CW = false;
+  }
+}
+
+ISR(PCINT2_vect) {  // Port K, PCINT23:16
+  if (digitalRead(A8)) pulse_count[8]++;  // Arduino Pins A8-A15
+  if (digitalRead(A9)) pulse_count[9]++;
+  if (digitalRead(A10)) pulse_count[10]++;
+  if (digitalRead(A11)) pulse_count[11]++;
+  
+  if (digitalRead(A12)) pulse_count[12]++;
+  if (digitalRead(A13)) pulse_count[13]++;
+  if (digitalRead(A14)) pulse_count[14]++;
+  if (digitalRead(A15)) pulse_count[15]++;
+
+  for (int i = 8; i < 16; i += 2) {
+    if (pulse_count[i] > pulse_count[i + 1]) enc_CW = true;
+    else enc_CCW = false;
+  }
 }
 
 float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 {
-    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
