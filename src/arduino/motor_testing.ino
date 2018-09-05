@@ -208,6 +208,10 @@ void loop() {
   nh.spinOnce();
 }
 
+////////////////////////////////////////////////////////////////////
+//        Unused currently -- Future Work in Progress             //
+////////////////////////////////////////////////////////////////////
+
 void PID(float setpoint, float current_angle) {
   error = setpoint - current_angle;
   sum += error;
@@ -218,6 +222,10 @@ void PID(float setpoint, float current_angle) {
   output = p_gain * error + i_gain * sum + d_gain * (previous - error);
   previous = error;
 }
+
+////////////////////////////////////////////////////////////////////
+//          Attach motors, establish serial comms, etc.           //
+////////////////////////////////////////////////////////////////////
 
 void initialize() {
   Serial1.begin(9600);
@@ -236,6 +244,13 @@ void initialize() {
   }
 }
 
+////////////////////////////////////////////////////////////////////
+//      Vector Math Subroutine -- Outputs resultant vectors       //
+//     Two vector inputs: Steer (Joystick) & Rotate (Bumpers)     //
+//   Sum of two vectors -> Resultant vector (magnitude and dir.)  //
+////////////////////////////////////////////////////////////////////
+
+
 float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float rotate_mag, int counter) {
   res_x = (steer_mag * cos(steer_angle)) + (rotate_mag * cos(rotate_angle));
   res_y = (steer_mag * sin(steer_angle)) + (rotate_mag * sin(rotate_angle));
@@ -250,9 +265,9 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
 
 ////////////////////////////////////////////////////////////////////
 // Motor drive subroutine -- Range: 1000 ms - 2000 ms pulse width //
-// Variable 'var' corresponds to which motor is driven            //
-// Variabel 'steer' is the speed of PG71 Gearmotor                //
-// Variable 'drive' is the speed of CIM motor                     //
+//     Variable 'var' corresponds to which motor is driven        //
+//      Variabel 'steer' is the speed of PG71 Gearmotor           //
+//        Variable 'drive' is the speed of CIM motor              //
 ////////////////////////////////////////////////////////////////////
 
 void motor_debugging(int var, float steer, float drive) {
@@ -276,6 +291,11 @@ void motor_debugging(int var, float steer, float drive) {
   }
 }
 
+////////////////////////////////////////////////////////////////////
+//     Motor stop subroutine -- Stops all motors when called      //
+//          TO-DO: Check to stop individual motors                //
+////////////////////////////////////////////////////////////////////
+
 void motor_stop() {
   for (int i = 0; i < 4; i++) {
     motors[i].writeMicroseconds(1500);      // Drive motor stop -- 1500 ms -> Neutral Position    
@@ -285,9 +305,9 @@ void motor_stop() {
   }
 }
 
-//////////////////////////////////////////////////////////////////////
-// Same as regular arduino map function but works with float values //
-//////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+//    Regular arduino map function but works with float values    //
+////////////////////////////////////////////////////////////////////
 
 float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 {
