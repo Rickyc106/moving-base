@@ -105,9 +105,10 @@ void loop() {
     }
 
     data_out[0] = byte('x');
-    data_out[1] = byte_1;
-    data_out[2] = byte_2;
-    data_out[3] = motor_dir[i];
+    data_out[1] = byte(i);
+    data_out[2] = byte_1;
+    data_out[3] = byte_2;
+    data_out[4] = motor_dir[i];
 
     //Serial.write(0x01 << i);
     Serial.write(data_out, 4);
