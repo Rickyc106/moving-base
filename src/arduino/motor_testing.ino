@@ -56,7 +56,7 @@ float steer_speed;
 volatile float pulse_count[16];   // Steer: 0-7, Drive 8-15
 volatile int previous_pulse[16];   // Stores previous pulse -- One for each pair of quadrature signals
 
-byte data_in[3];
+byte data_in[5], data_in_drive[5];
 uint8_t comp_period[8];
 
 double motor_speed[8];
@@ -122,7 +122,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   steer_angle *= (180 / 3.141592653);
 
-  temp.data = data_in[2];
+  temp.data = motor_speed[4];
   
   temp_array.data = resultant;  // WARNING: DO NOT CHANGE RIGHT NOW
   testing.data = 90 + msg.axes[1] * 90;
@@ -150,51 +150,68 @@ void loop() {
     while (Serial1.available() > 0) {
       byte incomingByte = Serial1.read();
 
-      if (incomingByte == 'x') {
-        for (int i = 0; i < 3; i++) {
+      if (incomingByte == '$') {
+        for (int i = 0; i < 5; i++) {
           data_in[i] = Serial1.read();
         }
 
-        switch (data_in[1]) {
-        // Steer motors ----------------------------------------------
+        switch (data_in[0]) {
+        // STEER MOTORS ----------------------------------------------
           case 0:
-            motor_speed[0] = data_in[2] << 8 | data_in[3];
-            motor_dir[0] = data_in[4];
+            motor_speed[0] = data_in[1] << 8 | data_in[2];
+            motor_dir[0] = data_in[3];
             break;
           case 1:
-            motor_speed[1] = data_in[2] << 8 | data_in[3];
-            motor_dir[1] = data_in[4];
+            motor_speed[1] = data_in[1] << 8 | data_in[2];
+            motor_dir[1] = data_in[3];
             break;
           case 2:
-            motor_speed[2] = data_in[2] << 8 | data_in[3];
-            motor_dir[2] = data_in[4];
+            motor_speed[2] = data_in[1] << 8 | data_in[2];
+            motor_dir[2] = data_in[3];
             break;
           case 3:
-            motor_speed[3] = data_in[2] << 8 | data_in[3];
-            motor_dir[3] = data_in[4];
+            motor_speed[3] = data_in[1] << 8 | data_in[2];
+            motor_dir[3] = data_in[3];
             break;
-
-        // Drive motors ----------------------------------------------
-        
-          case 4:
-            motor_speed[4] = data_in[2] << 8 | data_in[3];
-            motor_dir[4] = data_in[4];
-            break;
-          case 5:
-            motor_speed[5] = data_in[2] << 8 | data_in[3];
-            motor_dir[5] = data_in[4];
-            break;
-          case 6:
-            motor_speed[6] = data_in[2] << 8 | data_in[3];
-            motor_dir[6] = data_in[4];
-            break;
-          case 7:
-            motor_speed[7] = data_in[2] << 8 | data_in[3];
-            motor_dir[7] = data_in[4];
-            break; 
         }
       }
-    }  
+
+      if (data_in[4] == '%') break;
+    }
+  }
+
+  if (Serial2.available()) {
+    while (Serial2.available() > 0) {
+      byte incomingByte = Serial2.read();
+
+      if (incomingByte == '$') {
+        for (int i = 0; i < 5; i++) {
+          data_in_drive[i] = Serial2.read();
+        }
+
+        switch (data_in_drive[0]) {
+        // DRIVE MOTORS ----------------------------------------------
+          case 0:
+            motor_speed[4] = data_in_drive[1] << 8 | data_in_drive[2];
+            motor_dir[4] = data_in_drive[3];
+            break;
+          case 1:
+            motor_speed[5] = data_in_drive[1] << 8 | data_in_drive[2];
+            motor_dir[5] = data_in_drive[3];
+            break;
+          case 2:
+            motor_speed[6] = data_in_drive[1] << 8 | data_in_drive[2];
+            motor_dir[6] = data_in_drive[3];
+            break;
+          case 3:
+            motor_speed[7] = data_in_drive[1] << 8 | data_in_drive[2];
+            motor_dir[7] = data_in_drive[3];
+            break;
+        }
+      }
+      
+      if (data_in_drive[4] == '%') break;
+    }
   }
 
   for (int i = 0; i < 4; i++) {

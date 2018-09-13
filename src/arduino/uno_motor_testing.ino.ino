@@ -18,18 +18,18 @@ int specified_bit;
 unsigned long randNumber;
 volatile int val;
 
-byte data_out[3];
+byte data_out[6];
 
 void setup() {
   Serial.begin(9600);
 
-  cli();
+  cli();  // Turn off interrupts temporarily
 
   PCICR |= 0b00000101;    // turn on ports b and d
   PCMSK0 |= 0b00000001;   // turn on pins PB0 and PB1 -- PCINT0 & PCINT1, physical ATMEGA pin 14 & 15, UNO pins 8 & 9
   PCMSK2 |= 0b01000000;   // Pins for Port D instead
   
-  sei();
+  sei();  // Re-open interrupts
 
   attachInterrupt(0, encoderA, CHANGE);
   attachInterrupt(1, encoderB, CHANGE);
@@ -100,26 +100,32 @@ void loop() {
     for (int j = 16; j > 0; j--) {
       specified_bit = comp_period[i] >> j;
 
-      if ((specified_bit & 1) && (i >= 8 && i < 16)) byte_1 |= 1UL << i - 8;
-      else if ((specified_bit & 1) && (i < 8)) byte_2 |= 1UL << i;
+      if ((specified_bit & 1) && (j >= 8 && j < 16)) byte_1 |= 1UL << j - 8;
+      else if ((specified_bit & 1) && (j < 8)) byte_2 |= 1UL << j;
     }
 
-    data_out[0] = byte('x');
-    data_out[1] = byte(i);
+    
+    data_out[0] = byte('$');
+    data_out[1] = i;
     data_out[2] = byte_1;
     data_out[3] = byte_2;
     data_out[4] = motor_dir[i];
+    data_out[5] = byte('%');
 
-    //Serial.write(0x01 << i);
-    Serial.write(data_out, 4);
-
-    //Serial.print("Period: ");
-    //Serial.print(comp_period[i]);
-    //Serial.print("\t");
-    //Serial.print("Dir: ");
-    //Serial.print(motor_dir[i]);
-    //Serial.print("\t");
+    for (int k = 0; k < 6; k++) {
+      Serial.write(data_out[k]);  
+    }
+    
+    /*
+    Serial.print("Period: ");
+    Serial.print(comp_period[i]);
+    Serial.print("\t");
+    Serial.print("Dir: ");
+    Serial.print(motor_dir[i]);
+    Serial.print("\t");
+    */
   }
+  
   //long uno_pulse = pulseIn(3,HIGH);
   //if (uno_pulse > 1000) uno_pulse = 1000;
   
@@ -145,8 +151,6 @@ void loop() {
   }
   */
   //Serial.print(val);
-  
-  Serial.println();
 }
 
 /////
