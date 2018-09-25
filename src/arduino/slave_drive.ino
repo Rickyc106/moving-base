@@ -43,8 +43,8 @@ DRIVE_DATA_STRUCTURE tx_drive;
 void setup() {
   Serial.begin(115200);
 
-  ETout_steer.begin(details(tx_steer), &Serial);
-  //ETout_steer.begin(details(tx_drive), &Serial);
+  //ETout_steer.begin(details(tx_steer), &Serial);
+  ETout_drive.begin(details(tx_drive), &Serial);
 
   cli();  // Turn off interrupts temporarily
 
@@ -128,9 +128,9 @@ void loop() {
     if (period[i] > 15000) period[i] = 15000;   // Cap period to 15000 micros or 15 ms -- MAX 16 bit = 65,536 Decimal
 
     comp_period[i] = alpha * (comp_period[i]) + ((1 - alpha) * period[i]);    // Low pass filter to attenuate spike measurements
-    tx_steer.filter_period[i] = comp_period[i];
+    tx_drive.filter_period[i] = comp_period[i];
 
-    ETout_steer.sendData();
+    ETout_drive.sendData();
 /*
     for (int j = 15; j >= 0; j--) {
       specified_bit = comp_period[i] >> j;

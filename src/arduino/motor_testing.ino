@@ -7,6 +7,7 @@
 #include <tf/tf.h>
 #include <Servo.h>
 #include <avr/interrupt.h>
+#include <EasyTransfer.h>
 
 ros::NodeHandle nh;
 
@@ -50,17 +51,44 @@ unsigned long currentMillis = 0;
 
 int var[4];
 float aState, bState, aPrev, bPrev, aCount, bCount;
-float drive_speed;
-float steer_speed;
+float drive_speed[4];
+float steer_speed[4];
 
 volatile float pulse_count[16];   // Steer: 0-7, Drive 8-15
 volatile int previous_pulse[16];   // Stores previous pulse -- One for each pair of quadrature signals
 
-byte data_in[5], data_in_drive[5];
+uint8_t data_in[5], data_in_drive[5];
+byte data_in_prev[5], data_in_drive_prev[5];
+
+byte data_in_1[2], data_in_2[2], data_in_3[2], data_in_0[2];
+
+int counter = 0;
+
 uint8_t comp_period[8];
 
-double motor_speed[8];
+unsigned short motor_speed[8];
+unsigned short min_speed[2];
 bool motor_dir[8];
+
+const byte numBytes = 10;
+
+boolean newData = false;
+
+float PWM_output[8];
+float pot_input, steer_input, drive_input;
+
+EasyTransfer ETin_steer, ETout_steer, ETin_drive, ETout_drive;
+
+struct STEER_DATA_STRUCTURE {
+  unsigned short filter_period[4];
+};
+
+struct DRIVE_DATA_STRUCTURE {
+  unsigned short filter_period[4];
+};
+
+STEER_DATA_STRUCTURE rx_steer;
+DRIVE_DATA_STRUCTURE rx_drive;
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
   steer_angle = atan2(msg.axes[1], -msg.axes[0]);
@@ -87,13 +115,13 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
       rotate_angle[i] += M_PI / 22.5;
       rotate_mag[i] = 1.0;
 
-      steer_speed = mapf(msg.axes[2], -1.0, 1.0, 1.0, 0);
+      steer_input = mapf(msg.axes[2], -1.0, 1.0, 1.0, 0);
     }
     else if (!CCW && !no_rotate) {
       rotate_angle[i] -= M_PI / 22.5;
       rotate_mag[i] = 1.0;
 
-      steer_speed = mapf(msg.axes[5], -1.0, 1.0, -1.0, 0);
+      steer_input = mapf(msg.axes[5], -1.0, 1.0, -1.0, 0);
     }
 
     if (i == 0 || i == 1) rotate_mag[i] = -1.0;
@@ -101,7 +129,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     if (no_rotate) {
       rotate_mag[i] = 0.0;
 
-      steer_speed = 0.0;
+      steer_input = 0.0;
       //val = 0.0;
     }
 
@@ -110,7 +138,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     }
   }
 
-  drive_speed = msg.axes[1] * 0.40;
+  drive_input = msg.axes[1] * 0.40;
 
   for (int i = 0; i < 4; i++) {
     if (msg.buttons[i]) var[i] = i;
@@ -122,10 +150,21 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   steer_angle *= (180 / 3.141592653);
 
-  temp.data = motor_speed[4];
+  //temp.data = motor_speed[0];
+  //temp.data = motor_speed[1];
+  //temp.data = motor_speed[2];
+  //temp.data = motor_speed[3];
+  
+  //testing.data = motor_speed[4];
+  //testing.data = motor_speed[5];
+  //testing.data = motor_speed[6];
+  //testing.data = motor_speed[7];
+
+  //temp.data = data_in[2];
+  //testing.data = data_in_drive[2];
   
   temp_array.data = resultant;  // WARNING: DO NOT CHANGE RIGHT NOW
-  testing.data = 90 + msg.axes[1] * 90;
+  //testing.data = 90 + msg.axes[1] * 90;
 }
 
 ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
@@ -136,88 +175,103 @@ ros::Publisher temp_array_pub("temp_array_data", &temp_array);
 
 void setup() {
   initialize();   // Attach motors, establish serial comms, etc.
-  nh.initNode();  // Create ROS nodehandle
-
-  nh.subscribe(joy_sub);    // Subscribe to joy controller message
-  
-  nh.advertise(temp_pub);       // Debugging purposes -- Float32
-  nh.advertise(testing_pub);    // Debugging purposes -- Float32
-  nh.advertise(temp_array_pub); // Debugging purposes -- Float32MultiArray
+  ros_init();   // **Comment out when using Serial monitor for debugging**
 }
 
 void loop() {
-  if (Serial1.available()) {
-    while (Serial1.available() > 0) {
-      byte incomingByte = Serial1.read();
-
-      if (incomingByte == '$') {
-        for (int i = 0; i < 5; i++) {
-          data_in[i] = Serial1.read();
-        }
-
-        switch (data_in[0]) {
-        // STEER MOTORS ----------------------------------------------
-          case 0:
-            motor_speed[0] = data_in[1] << 8 | data_in[2];
-            motor_dir[0] = data_in[3];
-            break;
-          case 1:
-            motor_speed[1] = data_in[1] << 8 | data_in[2];
-            motor_dir[1] = data_in[3];
-            break;
-          case 2:
-            motor_speed[2] = data_in[1] << 8 | data_in[2];
-            motor_dir[2] = data_in[3];
-            break;
-          case 3:
-            motor_speed[3] = data_in[1] << 8 | data_in[2];
-            motor_dir[3] = data_in[3];
-            break;
-        }
-      }
-
-      if (data_in[4] == '%') break;
-    }
-  }
-
+  
+  
+  //receive_data();
+  //print_speed();
+/*
   if (Serial2.available()) {
     while (Serial2.available() > 0) {
       byte incomingByte = Serial2.read();
+      //Serial.println(incomingByte);
 
       if (incomingByte == '$') {
-        for (int i = 0; i < 5; i++) {
-          data_in_drive[i] = Serial2.read();
-        }
+        for (int i = 0; i < 4; i++) {
+          data_in[i] = Serial2.read();
 
-        switch (data_in_drive[0]) {
+          if (data_in[i] == 255) {
+            while (data_in[i] == 255) data_in[i] = Serial2.read();  
+          }
+        }
+        
+        switch (data_in[0]) {
         // DRIVE MOTORS ----------------------------------------------
           case 0:
-            motor_speed[4] = data_in_drive[1] << 8 | data_in_drive[2];
-            motor_dir[4] = data_in_drive[3];
+            motor_speed[4] = data_in[1] << 8 | data_in[2];
+            motor_dir[4] = data_in[3];
             break;
           case 1:
-            motor_speed[5] = data_in_drive[1] << 8 | data_in_drive[2];
-            motor_dir[5] = data_in_drive[3];
+            motor_speed[5] = data_in[1] << 8 | data_in[2];
+            motor_dir[5] = data_in[3];
             break;
           case 2:
-            motor_speed[6] = data_in_drive[1] << 8 | data_in_drive[2];
-            motor_dir[6] = data_in_drive[3];
+            motor_speed[6] = data_in[1] << 8 | data_in[2];
+            motor_dir[6] = data_in[3];
             break;
           case 3:
-            motor_speed[7] = data_in_drive[1] << 8 | data_in_drive[2];
-            motor_dir[7] = data_in_drive[3];
+            motor_speed[7] = data_in[1] << 8 | data_in[2];
+            motor_dir[7] = data_in[3];
             break;
         }
       }
       
-      if (data_in_drive[4] == '%') break;
+      if (incomingByte == '%') break;
     }
+  }
+*/
+
+  for (int i = 0; i < 4; i++) {
+    ETin_steer.receiveData();
+    motor_speed[i] = rx_steer.filter_period[i];
+    
+    //Serial.print(rx_steer.filter_period[i]);
+    //Serial.print(" ");
+  }
+
+  //Serial.print(" , ");
+  
+  for (int i = 0; i < 4; i++) {
+    ETin_drive.receiveData();
+    motor_speed[i+4] = rx_drive.filter_period[i];
+    
+    //Serial.print(rx_drive.filter_period[i]);
+    //Serial.print(" ");
+  }
+
+  min_speed[0] = motor_speed[0];
+  min_speed[1] = motor_speed[4];
+
+  for (int i = 1; i < 4; i++) {
+    if (motor_speed[i] > min_speed[0]) min_speed[0] = motor_speed[i];
+    if (motor_speed[i+4] > min_speed[4]) min_speed[1] = motor_speed[i+4];
   }
 
   for (int i = 0; i < 4; i++) {
-    motor_debugging(var[i], steer_speed, drive_speed);  
+    PWM_output[i] = PID(min_speed[0], motor_speed[i]);
+    PWM_output[i+4] = PID(min_speed[1], motor_speed[i+4]);
+
+    //Serial.print(PWM_output[i]);
+    //Serial.print(" ");
   }
   
+  //Serial.println();
+
+  pot_input = mapf(analogRead(A8), 0, 1023, -1, 0) * 0.5;
+  
+  for (int i = 0; i < 4; i++) {
+    steer_speed[i] = constrain(pot_input * PWM_output[i], -1, 0);
+    drive_speed[i] = constrain(pot_input * PWM_output[i+4], -1, 0);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    var[i] = i;
+    motor_debugging(var[i], 0, drive_speed[i]);  
+  }
+
   temp_pub.publish(&temp);
   testing_pub.publish(&testing);
   temp_array_pub.publish(&temp_array);
@@ -226,18 +280,118 @@ void loop() {
 }
 
 ////////////////////////////////////////////////////////////////////
-//        Unused currently -- Future Work in Progress             //
+//     Receive data when available -> Exits at stop flag          //
 ////////////////////////////////////////////////////////////////////
 
-void PID(float setpoint, float current_angle) {
-  error = setpoint - current_angle;
+void receive_data() {
+  static boolean receiveInProgress = false;
+  static byte ndx = 0;
+
+  byte startMarker = byte('$');
+  byte endMarker = byte('%');
+  
+  while (Serial1.available() > 0 && newData == false) {
+    byte incomingByte = Serial1.read();
+
+    if (incomingByte == 255) {
+      while (incomingByte == 255) incomingByte = Serial1.read();  
+    }
+
+    if (receiveInProgress == true) {
+      if (incomingByte != endMarker) {
+        data_in[ndx] = incomingByte;
+        ndx++;
+      }
+      else {
+        receiveInProgress = false;
+        newData = true;
+        ndx = 0;
+      }
+    }
+
+    else if (incomingByte == startMarker) {
+      receiveInProgress = true;  
+    }
+  }
+
+  bit_convert();
+}
+
+////////////////////////////////////////////////////////////////////
+//          Convert Two Bytes into Single 16-bit var              //
+////////////////////////////////////////////////////////////////////
+
+void bit_convert() {
+  switch (data_in[0]) {
+  // STEER MOTORS ----------------------------------------------
+    case 0:
+      motor_speed[0] = data_in[1] << 8 | data_in[2];
+      motor_dir[0] = data_in[3];
+      //temp.data = data_in[1];
+      //testing.data = data_in[2];
+      break;
+    case 1:
+      motor_speed[1] = data_in[1] << 8 | data_in[2];
+      motor_dir[1] = data_in[3];
+      //temp.data = data_in[1];
+      //testing.data = data_in[2];
+      break;
+    case 2:
+      motor_speed[2] = data_in[1] << 8 | data_in[2];
+      motor_dir[2] = data_in[3];
+      //temp.data = data_in[1];
+      //testing.data = data_in[2];
+      break;
+    case 3:
+      motor_speed[3] = data_in[1] << 8 | data_in[2];
+      motor_dir[3] = data_in[3];
+      //temp.data = data_in[1];
+      //testing.data = data_in[2];
+      break;
+  } 
+}
+
+////////////////////////////////////////////////////////////////////
+//        Print Motor Speed 0-3 and reset newData flag            //
+////////////////////////////////////////////////////////////////////
+
+void print_speed() {
+  if (newData == true) {
+    
+      Serial.print("Steer 0: ");
+      Serial.print(motor_speed[0]);
+      Serial.print("\t");
+      Serial.print("Steer 1: ");
+      Serial.print(motor_speed[1]);
+      Serial.print("\t");
+      Serial.print("Steer 2: ");
+      Serial.print(motor_speed[2]);
+      Serial.print("\t");
+      Serial.print("Steer 3: ");
+      Serial.print(motor_speed[3]);
+      Serial.println();
+
+      newData = false;
+  }
+}
+
+////////////////////////////////////////////////////////////////////
+//        Currently tuning PID gains -- Works but iffy            //
+////////////////////////////////////////////////////////////////////
+
+float PID(float setpoint, float current_value) {
+  if (setpoint == 0.0) setpoint = 0.1;
+  
+  error = current_value / setpoint;
   sum += error;
 
-  if (sum > 500) sum = 500;
-  else if (sum < -500) sum = -500;
+  if (sum > 0.1) sum = 0.1;
+  else if (sum < -0.1) sum = -0.1;
 
   output = p_gain * error + i_gain * sum + d_gain * (previous - error);
   previous = error;
+
+  return output;
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -245,20 +399,45 @@ void PID(float setpoint, float current_angle) {
 ////////////////////////////////////////////////////////////////////
 
 void initialize() {
-  Serial1.begin(9600);
-  Serial2.begin(9600);
+  //Serial.begin(115200);   // **Comment Out when using Rosserial -- Only used for easier debugging**
+  Serial1.begin(115200);
+  Serial2.begin(115200);
   
-  temp_array.data_length = 4;
+  ETin_steer.begin(details(rx_steer), &Serial1);
+  //ETout_steer.begin(details(tx_steer), &Serial1);
+
+  ETin_drive.begin(details(rx_drive), &Serial2);
+  //ETout_drive.begin(details(tx_drive), &Serial2);
 
   rotate_angle[0] -= M_PI / 4;
   rotate_angle[1] += M_PI / 4;
   rotate_angle[2] -= M_PI / 4;
   rotate_angle[3] += M_PI / 4;
 
+  p_gain = 2.1;
+  i_gain = 0.25;
+  d_gain = 0.1;
+
   for (int i = 0; i < 8; i++) {
     motors[i].attach(i + 32);   // Attach motors -- Pins 32 -> 39
     pinMode(i + 32, OUTPUT); // 22
   }
+}
+
+////////////////////////////////////////////////////////////////////
+//             Init ROS Node, advertise & subscribe.              //
+////////////////////////////////////////////////////////////////////
+
+void ros_init() {
+  nh.initNode();  // Create ROS nodehandle
+
+  nh.subscribe(joy_sub);    // Subscribe to joy controller message
+  
+  nh.advertise(temp_pub);       // Debugging purposes -- Float32
+  nh.advertise(testing_pub);    // Debugging purposes -- Float32
+  nh.advertise(temp_array_pub); // Debugging purposes -- Float32MultiArray
+  
+  temp_array.data_length = 4;   // Set length for array message
 }
 
 ////////////////////////////////////////////////////////////////////
