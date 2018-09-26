@@ -1,0 +1,7 @@
+# Class
+Motor	KEYWORD1
+
+# Functions
+init	KEYWORD2
+drive	KEYWORD2
+stop	KEYWORD2
