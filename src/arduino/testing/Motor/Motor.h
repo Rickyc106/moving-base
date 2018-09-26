@@ -9,10 +9,8 @@ class Motor
 		Motor(int pin);
 
 		void init();
-		void drive();
+		void drive(float speed, float limit);
 		void stop();
-		void vectorSum();
-		void PID();
 
 	private:
 		int _pin;
