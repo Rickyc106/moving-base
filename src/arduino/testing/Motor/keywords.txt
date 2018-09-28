@@ -1,7 +1,16 @@
-# Class
+# Classes
 Motor	KEYWORD1
+InterruptHelper	KEYWORD1
+PortManipulation	KEYWORD1
+Encoder	KEYWORD1
 
 # Functions
 init	KEYWORD2
 drive	KEYWORD2
 stop	KEYWORD2
+
+attachPinInterrupt	KEYWORD2
+
+digitalReadFast	KEYWORD2
+digitalWriteFast	KEYWORD2
+

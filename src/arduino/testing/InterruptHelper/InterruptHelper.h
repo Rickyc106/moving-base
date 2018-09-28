@@ -2,17 +2,19 @@
 #define InterruptHelper_h
 
 #include "Arduino.h"
+#include <avr/interrupt.h>
+#include <PortManipulation.h>
 
 class InterruptHelper
 {
 	public:
 		InterruptHelper();
-
-		void portSelect( _pin );
-		void pinMask( _pin );
-		void attachPinInterrupt( _pin );
+		
 		void closeInterrupts();
 		void reOpenInterrupts();
+		void portSelect( int _pin );
+		void pinMask( int _pin );
+		void attachPinInterrupt( int _pin );
 };
 
 #endif
