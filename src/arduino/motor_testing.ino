@@ -32,10 +32,17 @@ float p_gain, i_gain, d_gain;
 bool CCW, no_rotate;
 bool forwards[4];
 
-std_msgs::Float32 temp;
-std_msgs::Float32 testing;
+//std_msgs::Float32 temp;
+//std_msgs::Float32 testing;
+
+std_msgs::Float32 DATA_0;
+std_msgs::Float32 DATA_1;
+std_msgs::Float32 DATA_2;
+std_msgs::Float32 DATA_3;
+
 std_msgs::Float32MultiArray temp_array;
-std_msgs::Float32MultiArray mag_array;
+
+//std_msgs::Float32MultiArray mag_array;
 //moving_base::arduino_status stats;
 
 // ------------------------------------------------------------------------------------
@@ -50,24 +57,17 @@ unsigned long previousMillis = 0;
 unsigned long currentMillis = 0;
 
 int var[4];
-float aState, bState, aPrev, bPrev, aCount, bCount;
 float drive_speed[4];
 float steer_speed[4];
 
-volatile float pulse_count[16];   // Steer: 0-7, Drive 8-15
-volatile int previous_pulse[16];   // Stores previous pulse -- One for each pair of quadrature signals
-
-uint8_t data_in[5], data_in_drive[5];
-byte data_in_prev[5], data_in_drive_prev[5];
-
-byte data_in_1[2], data_in_2[2], data_in_3[2], data_in_0[2];
-
 int counter = 0;
+float speed_cap = 0.15;
 
 uint8_t comp_period[8];
 
 unsigned short motor_speed[8];
 unsigned short min_speed[2];
+float max_PWM_output[2];
 bool motor_dir[8];
 
 const byte numBytes = 10;
@@ -140,28 +140,11 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
   drive_input = msg.axes[1] * 0.40;
 
-  for (int i = 0; i < 4; i++) {
-    if (msg.buttons[i]) var[i] = i;
-  }
-
-  if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) motor_stop();
+  //if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) motor_stop();
 
   // FINISH TRIG MATH -----------------------------------------------------------------
 
   steer_angle *= (180 / 3.141592653);
-
-  //temp.data = motor_speed[0];
-  //temp.data = motor_speed[1];
-  //temp.data = motor_speed[2];
-  //temp.data = motor_speed[3];
-  
-  //testing.data = motor_speed[4];
-  //testing.data = motor_speed[5];
-  //testing.data = motor_speed[6];
-  //testing.data = motor_speed[7];
-
-  //temp.data = data_in[2];
-  //testing.data = data_in_drive[2];
   
   temp_array.data = resultant;  // WARNING: DO NOT CHANGE RIGHT NOW
   //testing.data = 90 + msg.axes[1] * 90;
@@ -169,8 +152,14 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
 
 ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
 
-ros::Publisher temp_pub("temp_data", &temp);
-ros::Publisher testing_pub("testing", &testing);
+//ros::Publisher temp_pub("temp_data", &temp);
+//ros::Publisher testing_pub("testing", &testing);
+
+ros::Publisher DATA_0_pub("DATA_0", &DATA_0);
+ros::Publisher DATA_1_pub("DATA_1", &DATA_1);
+ros::Publisher DATA_2_pub("DATA_2", &DATA_2);
+ros::Publisher DATA_3_pub("DATA_3", &DATA_3);
+
 ros::Publisher temp_array_pub("temp_array_data", &temp_array);
 
 void setup() {
@@ -179,200 +168,114 @@ void setup() {
 }
 
 void loop() {
-  
-  
-  //receive_data();
-  //print_speed();
-/*
-  if (Serial2.available()) {
-    while (Serial2.available() > 0) {
-      byte incomingByte = Serial2.read();
-      //Serial.println(incomingByte);
-
-      if (incomingByte == '$') {
-        for (int i = 0; i < 4; i++) {
-          data_in[i] = Serial2.read();
-
-          if (data_in[i] == 255) {
-            while (data_in[i] == 255) data_in[i] = Serial2.read();  
-          }
-        }
-        
-        switch (data_in[0]) {
-        // DRIVE MOTORS ----------------------------------------------
-          case 0:
-            motor_speed[4] = data_in[1] << 8 | data_in[2];
-            motor_dir[4] = data_in[3];
-            break;
-          case 1:
-            motor_speed[5] = data_in[1] << 8 | data_in[2];
-            motor_dir[5] = data_in[3];
-            break;
-          case 2:
-            motor_speed[6] = data_in[1] << 8 | data_in[2];
-            motor_dir[6] = data_in[3];
-            break;
-          case 3:
-            motor_speed[7] = data_in[1] << 8 | data_in[2];
-            motor_dir[7] = data_in[3];
-            break;
-        }
-      }
-      
-      if (incomingByte == '%') break;
-    }
-  }
-*/
-
   for (int i = 0; i < 4; i++) {
     ETin_steer.receiveData();
     motor_speed[i] = rx_steer.filter_period[i];
-    
-    //Serial.print(rx_steer.filter_period[i]);
-    //Serial.print(" ");
-  }
 
-  //Serial.print(" , ");
-  
-  for (int i = 0; i < 4; i++) {
     ETin_drive.receiveData();
     motor_speed[i+4] = rx_drive.filter_period[i];
-    
-    //Serial.print(rx_drive.filter_period[i]);
-    //Serial.print(" ");
   }
 
   min_speed[0] = motor_speed[0];
   min_speed[1] = motor_speed[4];
 
   for (int i = 1; i < 4; i++) {
-    if (motor_speed[i] > min_speed[0]) min_speed[0] = motor_speed[i];
-    if (motor_speed[i+4] > min_speed[4]) min_speed[1] = motor_speed[i+4];
+    if (motor_speed[i] < min_speed[0]) min_speed[0] = motor_speed[i];
+    if (motor_speed[i+4] < min_speed[4]) min_speed[1] = motor_speed[i+4];
   }
 
   for (int i = 0; i < 4; i++) {
     PWM_output[i] = PID(min_speed[0], motor_speed[i]);
     PWM_output[i+4] = PID(min_speed[1], motor_speed[i+4]);
-
-    //Serial.print(PWM_output[i]);
-    //Serial.print(" ");
   }
-  
-  //Serial.println();
 
-  pot_input = mapf(analogRead(A8), 0, 1023, -1, 0) * 0.5;
-  
-  for (int i = 0; i < 4; i++) {
-    steer_speed[i] = constrain(pot_input * PWM_output[i], -1, 0);
-    drive_speed[i] = constrain(pot_input * PWM_output[i+4], -1, 0);
+  max_PWM_output[0] = PWM_output[0];
+  max_PWM_output[1] = PWM_output[4];
+
+  for (int i = 1; i < 4; i++) {
+    if (PWM_output[i] > max_PWM_output[0]) max_PWM_output[0] = PWM_output[i];
+    if (PWM_output[i+4] > max_PWM_output[4]) max_PWM_output[1] = PWM_output[i+4];
   }
 
   for (int i = 0; i < 4; i++) {
-    var[i] = i;
-    motor_debugging(var[i], 0, drive_speed[i]);  
+    PWM_output[i] /= max_PWM_output[0];
+    PWM_output[i+4] /= max_PWM_output[1];
+  }
+  
+  //pot_input = mapf(analogRead(A8), 0, 1023, -1, 0) * 0.5;
+  
+  for (int i = 0; i < 4; i++) {
+    //steer_speed[i] = constrain(pot_input * PWM_output[i], -1, 0);
+    //drive_speed[i] = constrain(pot_input * PWM_output[i+4], -1, 0);
+
+    steer_speed[i] = constrain(steer_input * PWM_output[i], -1, 1);
+    drive_speed[i] = constrain(drive_input * PWM_output[i+4], -1, 1);
+  }
+/*
+  DATA_0.data = steer_speed[0];
+  DATA_1.data = steer_speed[1];
+  DATA_2.data = steer_speed[2];
+  DATA_3.data = steer_speed[3];
+*/
+
+  DATA_0.data = drive_speed[0];
+  DATA_1.data = drive_speed[1];
+  DATA_2.data = drive_speed[2];
+  DATA_3.data = drive_speed[3];
+  
+/*
+  DATA_0.data = PWM_output[0];
+  DATA_1.data = PWM_output[1];
+  DATA_2.data = PWM_output[2];
+  DATA_3.data = PWM_output[3];
+*/
+  for (int i = 0; i < 4; i++) {
+    motor_debugging(i, steer_speed[i], drive_speed[i]); // Drive Speed is PID output speed, drive input is input from controller
   }
 
-  temp_pub.publish(&temp);
-  testing_pub.publish(&testing);
-  temp_array_pub.publish(&temp_array);
+  //temp_pub.publish(&temp);
+  //testing_pub.publish(&testing);
+
+  DATA_0_pub.publish(&DATA_0);
+  DATA_1_pub.publish(&DATA_1);
+  DATA_2_pub.publish(&DATA_2);
+  DATA_3_pub.publish(&DATA_3);
+  
+  //temp_array_pub.publish(&temp_array);
 
   nh.spinOnce();
 }
 
 ////////////////////////////////////////////////////////////////////
-//     Receive data when available -> Exits at stop flag          //
-////////////////////////////////////////////////////////////////////
-
-void receive_data() {
-  static boolean receiveInProgress = false;
-  static byte ndx = 0;
-
-  byte startMarker = byte('$');
-  byte endMarker = byte('%');
-  
-  while (Serial1.available() > 0 && newData == false) {
-    byte incomingByte = Serial1.read();
-
-    if (incomingByte == 255) {
-      while (incomingByte == 255) incomingByte = Serial1.read();  
-    }
-
-    if (receiveInProgress == true) {
-      if (incomingByte != endMarker) {
-        data_in[ndx] = incomingByte;
-        ndx++;
-      }
-      else {
-        receiveInProgress = false;
-        newData = true;
-        ndx = 0;
-      }
-    }
-
-    else if (incomingByte == startMarker) {
-      receiveInProgress = true;  
-    }
-  }
-
-  bit_convert();
-}
-
-////////////////////////////////////////////////////////////////////
-//          Convert Two Bytes into Single 16-bit var              //
-////////////////////////////////////////////////////////////////////
-
-void bit_convert() {
-  switch (data_in[0]) {
-  // STEER MOTORS ----------------------------------------------
-    case 0:
-      motor_speed[0] = data_in[1] << 8 | data_in[2];
-      motor_dir[0] = data_in[3];
-      //temp.data = data_in[1];
-      //testing.data = data_in[2];
-      break;
-    case 1:
-      motor_speed[1] = data_in[1] << 8 | data_in[2];
-      motor_dir[1] = data_in[3];
-      //temp.data = data_in[1];
-      //testing.data = data_in[2];
-      break;
-    case 2:
-      motor_speed[2] = data_in[1] << 8 | data_in[2];
-      motor_dir[2] = data_in[3];
-      //temp.data = data_in[1];
-      //testing.data = data_in[2];
-      break;
-    case 3:
-      motor_speed[3] = data_in[1] << 8 | data_in[2];
-      motor_dir[3] = data_in[3];
-      //temp.data = data_in[1];
-      //testing.data = data_in[2];
-      break;
-  } 
-}
-
-////////////////////////////////////////////////////////////////////
-//        Print Motor Speed 0-3 and reset newData flag            //
+//  Print Motor Speed to Serial Monitor -- DO NOT use Rosserial   //
 ////////////////////////////////////////////////////////////////////
 
 void print_speed() {
-  if (newData == true) {
-    
-      Serial.print("Steer 0: ");
-      Serial.print(motor_speed[0]);
-      Serial.print("\t");
-      Serial.print("Steer 1: ");
-      Serial.print(motor_speed[1]);
-      Serial.print("\t");
-      Serial.print("Steer 2: ");
-      Serial.print(motor_speed[2]);
-      Serial.print("\t");
-      Serial.print("Steer 3: ");
-      Serial.print(motor_speed[3]);
-      Serial.println();
+  Serial.print("Steer 0: ");
+  Serial.print(motor_speed[0]);
+  Serial.print("\t");
+  Serial.print("Steer 1: ");
+  Serial.print(motor_speed[1]);
+  Serial.print("\t");
+  Serial.print("Steer 2: ");
+  Serial.print(motor_speed[2]);
+  Serial.print("\t");
+  Serial.print("Steer 3: ");
+  Serial.print(motor_speed[3]);
+  Serial.println();
 
-      newData = false;
-  }
+  Serial.print("Drive 0: ");
+  Serial.print(motor_speed[4]);
+  Serial.print("\t");
+  Serial.print("Drive 1: ");
+  Serial.print(motor_speed[5]);
+  Serial.print("\t");
+  Serial.print("Drive 2: ");
+  Serial.print(motor_speed[6]);
+  Serial.print("\t");
+  Serial.print("Drive 3: ");
+  Serial.print(motor_speed[7]);
+  Serial.println();
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -433,8 +336,14 @@ void ros_init() {
 
   nh.subscribe(joy_sub);    // Subscribe to joy controller message
   
-  nh.advertise(temp_pub);       // Debugging purposes -- Float32
-  nh.advertise(testing_pub);    // Debugging purposes -- Float32
+  //nh.advertise(temp_pub);       // Debugging purposes -- Float32
+  //nh.advertise(testing_pub);    // Debugging purposes -- Float32
+
+  nh.advertise(DATA_0_pub);
+  nh.advertise(DATA_1_pub);
+  nh.advertise(DATA_2_pub);
+  nh.advertise(DATA_3_pub);
+  
   nh.advertise(temp_array_pub); // Debugging purposes -- Float32MultiArray
   
   temp_array.data_length = 4;   // Set length for array message
@@ -469,20 +378,20 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
 void motor_debugging(int var, float steer, float drive) {
   switch (var) {
     case 0:
-      motors[0].writeMicroseconds(1500 + (drive * 500 * 0.35));    // DRIVE MOTOR -- 32 max right now
-      motors[1].writeMicroseconds(1500 + (steer * 500 * 0.35));   // STEER MOTOR -- 1.45 max
+      motors[0].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
+      motors[1].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
       break;
     case 1:
-      motors[2].writeMicroseconds(1500 + (drive * 500 * 0.35));    // DRIVE MOTOR -- 32 max right now
-      motors[3].writeMicroseconds(1500 + (steer * 500 * 0.35));   // STEER MOTOR -- 1.45 max
+      motors[2].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
+      motors[3].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
       break;
     case 2:
-      motors[4].writeMicroseconds(1500 + (drive * 500 * 0.35));    // DRIVE MOTOR -- 32 max right now
-      motors[5].writeMicroseconds(1500 + (steer * 500 * 0.35));   // STEER MOTOR -- 1.45 max
+      motors[4].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
+      motors[5].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
       break;
     case 3:
-      motors[6].writeMicroseconds(1500 + (drive * 500 * 0.35));    // DRIVE MOTOR -- 32 max right now
-      motors[7].writeMicroseconds(1500 + (steer * 500 * 0.35));   // STEER MOTOR -- 1.45 max
+      motors[6].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
+      motors[7].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
       break;
   }
 }

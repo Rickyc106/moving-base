@@ -34,7 +34,7 @@ def main():
 	rospy.init_node('queue_reducer', anonymous=True)
 
 	rospy.Subscriber('joy',  Joy, joy_cb)
-	rospy.Subscriber('temp_array_data', Float32MultiArray, array_cb)
+	#rospy.Subscriber('temp_array_data', Float32MultiArray, array_cb)
 
 	# pose_array.pose.position = [-5,5,0]
 	# pose_array.pose[1].position = [-5,-5,0]
@@ -69,7 +69,7 @@ def main():
 		print str(resultant)
 
 		queued_joy.publish(joy_msg)
-		arrow_pub.publish(pose_array)
+		#arrow_pub.publish(pose_array)
 		rate.sleep()
 		#print "Reducing queue size to", queue
 
