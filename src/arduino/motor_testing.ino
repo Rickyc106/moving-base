@@ -5,8 +5,8 @@
 #include <std_msgs/Float32MultiArray.h>
 #include <moving_base/arduino_status.h>
 #include <tf/tf.h>
+
 #include <Servo.h>
-#include <avr/interrupt.h>
 #include <EasyTransfer.h>
 
 ros::NodeHandle nh;
@@ -61,7 +61,8 @@ float drive_speed[4];
 float steer_speed[4];
 
 int counter = 0;
-float speed_cap = 0.15;
+float speed_cap = 0.15; // 0.1 Good cap for testing drive encoders with finger
+                        // 0.15 Good cap for testing steer encoders with finger
 
 uint8_t comp_period[8];
 
@@ -138,7 +139,7 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     }
   }
 
-  drive_input = msg.axes[1] * 0.40;
+  drive_input = msg.axes[1];
 
   //if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) motor_stop();
 
@@ -197,9 +198,16 @@ void loop() {
     if (PWM_output[i+4] > max_PWM_output[4]) max_PWM_output[1] = PWM_output[i+4];
   }
 
-  for (int i = 0; i < 4; i++) {
-    PWM_output[i] /= max_PWM_output[0];
-    PWM_output[i+4] /= max_PWM_output[1];
+  if (max_PWM_output[0] != 0){
+    for (int i = 0; i < 4; i++) {
+      PWM_output[i] /= max_PWM_output[0];
+    }
+  }
+
+  if (max_PWM_output[1] != 0){
+    for (int i = 0; i < 4; i++) {
+      PWM_output[i+4] /= max_PWM_output[1];
+    }
   }
   
   //pot_input = mapf(analogRead(A8), 0, 1023, -1, 0) * 0.5;
@@ -230,16 +238,18 @@ void loop() {
   DATA_3.data = PWM_output[3];
 */
   for (int i = 0; i < 4; i++) {
-    motor_debugging(i, steer_speed[i], drive_speed[i]); // Drive Speed is PID output speed, drive input is input from controller
+    //motor_debugging(i, steer_speed[i], drive_speed[i]); // Drive Speed is PID output speed, drive input is input from controller
+    //motor_debugging(i,steer_input, drive_speed[i]);
+    motor_debugging(i,steer_speed[i], drive_input);
   }
 
   //temp_pub.publish(&temp);
   //testing_pub.publish(&testing);
 
-  DATA_0_pub.publish(&DATA_0);
-  DATA_1_pub.publish(&DATA_1);
-  DATA_2_pub.publish(&DATA_2);
-  DATA_3_pub.publish(&DATA_3);
+  //DATA_0_pub.publish(&DATA_0);
+  //DATA_1_pub.publish(&DATA_1);
+  //DATA_2_pub.publish(&DATA_2);
+  //DATA_3_pub.publish(&DATA_3);
   
   //temp_array_pub.publish(&temp_array);
 
@@ -302,7 +312,7 @@ float PID(float setpoint, float current_value) {
 ////////////////////////////////////////////////////////////////////
 
 void initialize() {
-  //Serial.begin(115200);   // **Comment Out when using Rosserial -- Only used for easier debugging**
+  Serial.begin(115200);   // **Comment Out when using Rosserial -- Only used for easier debugging**
   Serial1.begin(115200);
   Serial2.begin(115200);
   
@@ -323,7 +333,7 @@ void initialize() {
 
   for (int i = 0; i < 8; i++) {
     motors[i].attach(i + 32);   // Attach motors -- Pins 32 -> 39
-    pinMode(i + 32, OUTPUT); // 22
+    //pinMode(i + 32, OUTPUT); // 22
   }
 }
 
@@ -378,20 +388,20 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
 void motor_debugging(int var, float steer, float drive) {
   switch (var) {
     case 0:
-      motors[0].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
-      motors[1].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
+      motors[0].writeMicroseconds(1500 + (steer * 500 * speed_cap));    // STEER MOTOR -- 1.45 max
+      motors[1].writeMicroseconds(1500 + (drive * 500 * speed_cap));   // DRIVE MOTOR -- 32 max right now
       break;
     case 1:
-      motors[2].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
-      motors[3].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
+      motors[2].writeMicroseconds(1500 + (steer * 500 * speed_cap));    // STEER MOTOR -- 1.45 max
+      motors[3].writeMicroseconds(1500 + (drive * 500 * speed_cap));   // DRIVE MOTOR -- 32 max right now
       break;
     case 2:
-      motors[4].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
-      motors[5].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
+      motors[4].writeMicroseconds(1500 + (steer * 500 * speed_cap));    // STEER MOTOR -- 1.45 max
+      motors[5].writeMicroseconds(1500 + (drive * 500 * speed_cap));   // DRIVE MOTOR -- 32 max right now
       break;
     case 3:
-      motors[6].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now
-      motors[7].writeMicroseconds(1500 + (steer * 500 * speed_cap));   // STEER MOTOR -- 1.45 max
+      motors[6].writeMicroseconds(1500 + (steer * 500 * speed_cap));    // STEER MOTOR -- 1.45 max
+      motors[7].writeMicroseconds(1500 + (drive * 500 * speed_cap));   // DRIVE MOTOR -- 32 max right now
       break;
   }
 }
