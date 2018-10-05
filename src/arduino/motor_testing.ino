@@ -22,9 +22,9 @@ float res_x, res_y;
 float resultant_angle[4];
 float resultant[4];
 
-float error;
-float sum;
-float previous;
+float error[8];
+float sum[8];
+float previous[8];
 
 float output;
 float p_gain, i_gain, d_gain;
@@ -51,6 +51,7 @@ bool enc_CW = false;
 bool enc_CCW = false;
 int CW_pulse, CCW_pulse;
 bool stop_signal = false;
+bool run_all_motors = false;
 
 Servo motors[8];
 unsigned long previousMillis = 0;
@@ -61,14 +62,15 @@ float drive_speed[4];
 float steer_speed[4];
 
 int counter = 0;
-float speed_cap = 0.15; // 0.1 Good cap for testing drive encoders with finger
+float speed_cap = 0.25; // 0.1 Good cap for testing drive encoders with finger
                         // 0.15 Good cap for testing steer encoders with finger
 
 uint8_t comp_period[8];
 
-unsigned short motor_speed[8];
-unsigned short min_speed[2];
+unsigned short motor_period[8];
+unsigned short min_period[2];
 float max_PWM_output[2];
+float min_PWM_output[2];
 bool motor_dir[8];
 
 const byte numBytes = 10;
@@ -139,9 +141,18 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
     }
   }
 
+  for (int i =  0; i < 4; i++) {
+    if (msg.buttons[i]) var[i] = i;  
+  }
+
+  if (msg.buttons[0] && msg.buttons[1] && msg.buttons[2] && msg.buttons[3]) run_all_motors = true;
+
   drive_input = msg.axes[1];
 
-  //if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) motor_stop();
+  if (!msg.buttons[0] && !msg.buttons[1] && !msg.buttons[2] && !msg.buttons[3]) {
+    motor_stop();
+    run_all_motors = false;
+  }
 
   // FINISH TRIG MATH -----------------------------------------------------------------
 
@@ -171,43 +182,40 @@ void setup() {
 void loop() {
   for (int i = 0; i < 4; i++) {
     ETin_steer.receiveData();
-    motor_speed[i] = rx_steer.filter_period[i];
+    motor_period[i] = rx_steer.filter_period[i];
 
     ETin_drive.receiveData();
-    motor_speed[i+4] = rx_drive.filter_period[i];
+    motor_period[i+4] = rx_drive.filter_period[i];
   }
 
-  min_speed[0] = motor_speed[0];
-  min_speed[1] = motor_speed[4];
+  min_period[0] = motor_period[0];
+  min_period[1] = motor_period[4];
 
   for (int i = 1; i < 4; i++) {
-    if (motor_speed[i] < min_speed[0]) min_speed[0] = motor_speed[i];
-    if (motor_speed[i+4] < min_speed[4]) min_speed[1] = motor_speed[i+4];
+    if (motor_period[i] > min_period[0]) min_period[0] = motor_period[i];
+    if (motor_period[i+4] > min_period[4]) min_period[1] = motor_period[i+4];
   }
 
   for (int i = 0; i < 4; i++) {
-    PWM_output[i] = PID(min_speed[0], motor_speed[i]);
-    PWM_output[i+4] = PID(min_speed[1], motor_speed[i+4]);
+    //PWM_output[i] = PID(min_period[0], motor_period[i]);
+    //PWM_output[i+4] = PID(min_period[1], motor_period[i+4]);
+
+    PWM_output[i] = PID(i, motor_period[0], motor_period[i]);
+    PWM_output[i+4] = PID(i+4, motor_period[4], motor_period[i+4]);
   }
 
   max_PWM_output[0] = PWM_output[0];
   max_PWM_output[1] = PWM_output[4];
 
+  min_PWM_output[0] = PWM_output[0];
+  min_PWM_output[1] = PWM_output[4];
+
   for (int i = 1; i < 4; i++) {
     if (PWM_output[i] > max_PWM_output[0]) max_PWM_output[0] = PWM_output[i];
     if (PWM_output[i+4] > max_PWM_output[4]) max_PWM_output[1] = PWM_output[i+4];
-  }
 
-  if (max_PWM_output[0] != 0){
-    for (int i = 0; i < 4; i++) {
-      PWM_output[i] /= max_PWM_output[0];
-    }
-  }
-
-  if (max_PWM_output[1] != 0){
-    for (int i = 0; i < 4; i++) {
-      PWM_output[i+4] /= max_PWM_output[1];
-    }
+    if (PWM_output[i] < min_PWM_output[0]) min_PWM_output[0] = PWM_output[i];
+    if (PWM_output[i+4] < min_PWM_output[4]) min_PWM_output[1] = PWM_output[i+4];
   }
   
   //pot_input = mapf(analogRead(A8), 0, 1023, -1, 0) * 0.5;
@@ -215,9 +223,32 @@ void loop() {
   for (int i = 0; i < 4; i++) {
     //steer_speed[i] = constrain(pot_input * PWM_output[i], -1, 0);
     //drive_speed[i] = constrain(pot_input * PWM_output[i+4], -1, 0);
+    
+    if (min_PWM_output[0] >= 0) {
+      PWM_output[i] = mapf(PWM_output[i], min_PWM_output[0], max_PWM_output[0], 0, 0.2);  
+    }
+    else if (min_PWM_output[0] < 0) {
+      PWM_output[i] = mapf(PWM_output[i], min_PWM_output[0], max_PWM_output[0], -0.2, 0);  
+    }
 
-    steer_speed[i] = constrain(steer_input * PWM_output[i], -1, 1);
-    drive_speed[i] = constrain(drive_input * PWM_output[i+4], -1, 1);
+    if (min_PWM_output[1] >= 0) {
+      PWM_output[i+4] = mapf(PWM_output[i+4], min_PWM_output[1], max_PWM_output[1], 0, 0.2);  
+    }
+    else if (min_PWM_output[1] < 0) {
+      PWM_output[i+4] = mapf(PWM_output[i+4], min_PWM_output[1], max_PWM_output[1], -0.2, 0);  
+    }
+
+    //steer_speed[i] = steer_input * PWM_output[i];
+    //drive_speed[i] = drive_input * PWM_output[i+4];
+    
+    steer_input = constrain(steer_input, -0.8, 0.8);
+    drive_input = constrain(drive_input, -0.8, 0.8);
+    
+    steer_speed[i] = constrain(steer_input + PWM_output[i], -1, 1);
+    drive_speed[i] = constrain(drive_input + PWM_output[i+4], -1, 1);
+
+    //steer_speed[i] = constrain(steer_speed[i], -1, 1);
+    //drive_speed[i] = constrain(drive_speed[i], -1, 1);
   }
 /*
   DATA_0.data = steer_speed[0];
@@ -225,31 +256,56 @@ void loop() {
   DATA_2.data = steer_speed[2];
   DATA_3.data = steer_speed[3];
 */
-
+/*
   DATA_0.data = drive_speed[0];
   DATA_1.data = drive_speed[1];
   DATA_2.data = drive_speed[2];
   DATA_3.data = drive_speed[3];
-  
+*/
 /*
   DATA_0.data = PWM_output[0];
   DATA_1.data = PWM_output[1];
   DATA_2.data = PWM_output[2];
   DATA_3.data = PWM_output[3];
 */
+
+  DATA_0.data = min_PWM_output[0];
+  //DATA_1.data = min_PWM_output[1];
+  DATA_2.data = max_PWM_output[0];
+  //DATA_3.data = max_PWM_output[1];
+
+/*
+  DATA_0.data = motor_period[0];
+  DATA_1.data = motor_period[1];
+  DATA_2.data = motor_period[2];
+  DATA_3.data = motor_period[3];
+*/
+  if (run_all_motors) {
+    for (int i = 0; i < 4; i++) {
+      motor_debugging(var[i], steer_speed[i], 0);  
+    }
+  }
+  else {
+    for (int i = 0; i < 4; i++) {
+      motor_debugging(var[i], steer_input, 0);   
+    } 
+  }
+  
   for (int i = 0; i < 4; i++) {
     //motor_debugging(i, steer_speed[i], drive_speed[i]); // Drive Speed is PID output speed, drive input is input from controller
-    //motor_debugging(i,steer_input, drive_speed[i]);
-    motor_debugging(i,steer_speed[i], drive_input);
+    //motor_debugging(i,steer_input, drive_input);
+    //motor_debugging(var[i],steer_speed[i], drive_speed[i]);
+    //motor_debugging(var[i], steer_input, 0);
+    //motor_debugging(var[i], steer_speed[i], 0);
   }
 
   //temp_pub.publish(&temp);
   //testing_pub.publish(&testing);
 
-  //DATA_0_pub.publish(&DATA_0);
-  //DATA_1_pub.publish(&DATA_1);
-  //DATA_2_pub.publish(&DATA_2);
-  //DATA_3_pub.publish(&DATA_3);
+  DATA_0_pub.publish(&DATA_0);
+  DATA_1_pub.publish(&DATA_1);
+  DATA_2_pub.publish(&DATA_2);
+  DATA_3_pub.publish(&DATA_3);
   
   //temp_array_pub.publish(&temp_array);
 
@@ -262,29 +318,29 @@ void loop() {
 
 void print_speed() {
   Serial.print("Steer 0: ");
-  Serial.print(motor_speed[0]);
+  Serial.print(motor_period[0]);
   Serial.print("\t");
   Serial.print("Steer 1: ");
-  Serial.print(motor_speed[1]);
+  Serial.print(motor_period[1]);
   Serial.print("\t");
   Serial.print("Steer 2: ");
-  Serial.print(motor_speed[2]);
+  Serial.print(motor_period[2]);
   Serial.print("\t");
   Serial.print("Steer 3: ");
-  Serial.print(motor_speed[3]);
+  Serial.print(motor_period[3]);
   Serial.println();
 
   Serial.print("Drive 0: ");
-  Serial.print(motor_speed[4]);
+  Serial.print(motor_period[4]);
   Serial.print("\t");
   Serial.print("Drive 1: ");
-  Serial.print(motor_speed[5]);
+  Serial.print(motor_period[5]);
   Serial.print("\t");
   Serial.print("Drive 2: ");
-  Serial.print(motor_speed[6]);
+  Serial.print(motor_period[6]);
   Serial.print("\t");
   Serial.print("Drive 3: ");
-  Serial.print(motor_speed[7]);
+  Serial.print(motor_period[7]);
   Serial.println();
 }
 
@@ -292,17 +348,22 @@ void print_speed() {
 //        Currently tuning PID gains -- Works but iffy            //
 ////////////////////////////////////////////////////////////////////
 
-float PID(float setpoint, float current_value) {
+float PID(int motor, float setpoint, float current_value) {
   if (setpoint == 0.0) setpoint = 0.1;
-  
-  error = current_value / setpoint;
-  sum += error;
 
-  if (sum > 0.1) sum = 0.1;
-  else if (sum < -0.1) sum = -0.1;
+  for (int i = 0; i < 8; i++) {
+    if (motor == i) {
+      error[i] = current_value - setpoint;
+      error[i] /= 1000;
+      sum[i] += error[i];
 
-  output = p_gain * error + i_gain * sum + d_gain * (previous - error);
-  previous = error;
+      if (sum[i] > 0.5) sum[i] = 0.5;
+      else if (sum[i] < -0.5) sum[i] = -0.5;
+
+      output = p_gain * error[i] + i_gain * sum[i] + d_gain * (previous[i] - error[i]);
+      previous[i] = error[i];
+    }
+  }
 
   return output;
 }
@@ -327,9 +388,9 @@ void initialize() {
   rotate_angle[2] -= M_PI / 4;
   rotate_angle[3] += M_PI / 4;
 
-  p_gain = 2.1;
-  i_gain = 0.25;
-  d_gain = 0.1;
+  p_gain = 0.1; // Previous 2.1
+  i_gain = 0.0;// Previous 0.25
+  d_gain = 0.0; // Previous 0.1
 
   for (int i = 0; i < 8; i++) {
     motors[i].attach(i + 32);   // Attach motors -- Pins 32 -> 39
