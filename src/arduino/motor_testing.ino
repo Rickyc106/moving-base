@@ -1,6 +1,7 @@
 #include <ros.h>
 #include <math.h>
 #include <sensor_msgs/Joy.h>
+#include <std_msgs/Bool.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <moving_base/arduino_status.h>
@@ -35,6 +36,8 @@ bool forwards[4];
 //std_msgs::Float32 temp;
 //std_msgs::Float32 testing;
 
+std_msgs::Bool boolean_data;
+
 std_msgs::Float32 DATA_0;
 std_msgs::Float32 DATA_1;
 std_msgs::Float32 DATA_2;
@@ -52,6 +55,7 @@ bool enc_CCW = false;
 int CW_pulse, CCW_pulse;
 bool stop_signal = false;
 bool run_all_motors = false;
+bool startUp = true;
 
 Servo motors[8];
 unsigned long previousMillis = 0;
@@ -61,16 +65,25 @@ int var[4];
 float drive_speed[4];
 float steer_speed[4];
 
+float comp_steer[4];
+float comp_drive[4];
+
+float alpha = 0.8;
+float beta = 0.95;
+
 int counter = 0;
-float speed_cap = 0.25; // 0.1 Good cap for testing drive encoders with finger
+float width = 0.2;
+float speed_cap = 0.5; // 0.1 Good cap for testing drive encoders with finger
                         // 0.15 Good cap for testing steer encoders with finger
 
-uint8_t comp_period[8];
+unsigned short comp_period[8];
 
 unsigned short motor_period[8];
 unsigned short min_period[2];
+float rotation[8];
 float max_PWM_output[2];
 float min_PWM_output[2];
+float range[2];
 bool motor_dir[8];
 
 const byte numBytes = 10;
@@ -79,15 +92,26 @@ boolean newData = false;
 
 float PWM_output[8];
 float pot_input, steer_input, drive_input;
+float steer_rotation, drive_rotation;
+boolean motor_stopped[8];
+
+int motor_counter[8];
+unsigned short queue[8][10];
+
+float random_float_value;
 
 EasyTransfer ETin_steer, ETout_steer, ETin_drive, ETout_drive;
 
 struct STEER_DATA_STRUCTURE {
   unsigned short filter_period[4];
+  //boolean wheel_stopped[4];
+  int wheel_counter[4];
 };
 
 struct DRIVE_DATA_STRUCTURE {
   unsigned short filter_period[4];
+  //boolean wheel_stopped[4];
+  int wheel_counter[4];
 };
 
 STEER_DATA_STRUCTURE rx_steer;
@@ -167,6 +191,8 @@ ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
 //ros::Publisher temp_pub("temp_data", &temp);
 //ros::Publisher testing_pub("testing", &testing);
 
+ros::Publisher boolean_data_pub("boolean_data", &boolean_data);
+
 ros::Publisher DATA_0_pub("DATA_0", &DATA_0);
 ros::Publisher DATA_1_pub("DATA_1", &DATA_1);
 ros::Publisher DATA_2_pub("DATA_2", &DATA_2);
@@ -180,12 +206,53 @@ void setup() {
 }
 
 void loop() {
+
+  //steer_rotation = steer_input * 3.856;   // Arbitrary setpoint
+  //drive_rotation = drive_input * 3.856;   // Arbitrary setpoint
+
+  steer_rotation = convert_controller_to_speed(steer_input, 1.0);
+  drive_rotation = convert_controller_to_speed(drive_input, 1.0);
+  
   for (int i = 0; i < 4; i++) {
     ETin_steer.receiveData();
     motor_period[i] = rx_steer.filter_period[i];
+    comp_period[i] = beta * comp_period[i] + (1 - beta) * motor_period[i];
 
     ETin_drive.receiveData();
     motor_period[i+4] = rx_drive.filter_period[i];
+    comp_period[i+4] = beta * comp_period[i+4] + (1 - beta) * motor_period[i+4];
+
+    queue[i][0] = motor_period[i];
+    queue[i+4][0] = motor_period[i+4];
+
+    for (int j = 9; j > 0; j--) {
+      queue[i][j] = queue[i][j-1];
+      queue[i+4][j] = queue[i+4][j-1];
+    }
+
+    if (queue[i][9] == queue[i][0]) motor_stopped[i] = true;
+    if (queue[i+4][9] == queue[i][0]) motor_stopped[i+4] = true;
+
+    //motor_stopped[i] = rx_steer.wheel_stopped[i];
+    motor_counter[i] = rx_steer.wheel_counter[i];
+
+    if (steer_rotation != 0) rotation[i] = 0.0022 * (2 * 3.141592653 * 1000000) / (comp_period[i] * 2) + 0.2452;
+    //if (steer_rotation != 0 && motor_period[i] > 250 && motor_period[i] < 14000) rotation[i] = 0.0022 * (2 * 3.141592653 * 1000000) / (motor_period[i] * 2) + 0.2452;
+    else if (steer_rotation == 0) rotation[i] = 0;
+
+    if (motor_counter[i] < 0 || motor_counter[i] > 3) rotation[i] = 0;
+
+    //motor_stopped[i+4] = rx_drive.wheel_stopped[i];
+    motor_counter[i+4] = rx_drive.wheel_counter[i];
+
+    if (drive_rotation != 0 && motor_counter[i+4] >= 0 && motor_counter[i+4] < 3) rotation[i+4] = 0.0022 * (2 * 3.141592653 * 1000000) / (comp_period[i+4] * 2) + 0.2452;  // may have to recalibrate for drive motors
+    //if (drive_rotation != 0 && motor_period[i+4] > 250 && motor_period[i+4] < 14000) rotation[i+4] = 0.0022 * (2 * 3.141592653 * 1000000) / (motor_period[i+4] * 2) + 0.2452;  // may have to recalibrate for drive motors
+    else if (drive_rotation == 0) rotation[i+4] = 0;
+
+    if (motor_counter[i+4] < 0 || motor_counter[i+4] > 3) rotation[i+4] = 0;
+
+    if (CCW == false) rotation[i] = rotation[i] * -1;
+    if (drive_rotation < 0) rotation[i+4] = rotation[i+4] * -1;
   }
 
   min_period[0] = motor_period[0];
@@ -196,12 +263,31 @@ void loop() {
     if (motor_period[i+4] > min_period[4]) min_period[1] = motor_period[i+4];
   }
 
+  //steer_rotation = steer_input * speed_cap * 9.052;   // TEST BEFORE RUNNING
+  //drive_rotation = drive_input * speed_cap * 9.052;   // TEST BEFORE RUNNING
+
   for (int i = 0; i < 4; i++) {
     //PWM_output[i] = PID(min_period[0], motor_period[i]);
     //PWM_output[i+4] = PID(min_period[1], motor_period[i+4]);
-
-    PWM_output[i] = PID(i, motor_period[0], motor_period[i]);
-    PWM_output[i+4] = PID(i+4, motor_period[4], motor_period[i+4]);
+/*
+    if (var[i] == i && steer_input == 0) {
+      PWM_output[i] = 0;
+    }
+    else if (var[i] == i && steer_input != 0) {
+      //PWM_output[i] = PID(i, motor_period[0], motor_period[i]);
+      PWM_output[i] = PID(i, steer_rotation, rotation[i]);    // Uncomment once previous lines tested
+    }
+    
+    if (var[i] == i && drive_input == 0) {
+      PWM_output[i+4] = 0;  
+    }
+    else if (var[i] == i && drive_input != 0) {
+      //PWM_output[i+4] = PID(i+4, motor_period[4], motor_period[i+4]);
+      PWM_output[i+4] = PID(i, drive_rotation, rotation[i+4]);    // Uncomment once previous lines tested
+    }
+*/
+    PWM_output[i] = PID(i, steer_rotation, rotation[i]);    // Uncomment once previous lines tested
+    PWM_output[i+4] = PID(i+4, drive_rotation, rotation[i+4]);    // Uncomment once previous lines tested
   }
 
   max_PWM_output[0] = PWM_output[0];
@@ -212,18 +298,21 @@ void loop() {
 
   for (int i = 1; i < 4; i++) {
     if (PWM_output[i] > max_PWM_output[0]) max_PWM_output[0] = PWM_output[i];
-    if (PWM_output[i+4] > max_PWM_output[4]) max_PWM_output[1] = PWM_output[i+4];
+    if (PWM_output[i+4] > max_PWM_output[1]) max_PWM_output[1] = PWM_output[i+4];
 
     if (PWM_output[i] < min_PWM_output[0]) min_PWM_output[0] = PWM_output[i];
-    if (PWM_output[i+4] < min_PWM_output[4]) min_PWM_output[1] = PWM_output[i+4];
+    if (PWM_output[i+4] < min_PWM_output[1]) min_PWM_output[1] = PWM_output[i+4];
   }
   
   //pot_input = mapf(analogRead(A8), 0, 1023, -1, 0) * 0.5;
-  
+
+  range[0] = max_PWM_output[0] - min_PWM_output[0];
+  range[1] = max_PWM_output[1] - min_PWM_output[1];
+
   for (int i = 0; i < 4; i++) {
     //steer_speed[i] = constrain(pot_input * PWM_output[i], -1, 0);
     //drive_speed[i] = constrain(pot_input * PWM_output[i+4], -1, 0);
-    
+    /*
     if (min_PWM_output[0] >= 0) {
       PWM_output[i] = mapf(PWM_output[i], min_PWM_output[0], max_PWM_output[0], 0, 0.2);  
     }
@@ -237,15 +326,33 @@ void loop() {
     else if (min_PWM_output[1] < 0) {
       PWM_output[i+4] = mapf(PWM_output[i+4], min_PWM_output[1], max_PWM_output[1], -0.2, 0);  
     }
-
+    */
     //steer_speed[i] = steer_input * PWM_output[i];
     //drive_speed[i] = drive_input * PWM_output[i+4];
+
+    //PWM_output[i] = (((PWM_output[i] - min_PWM_output[0]) / abs(range[0])) * (2 * width)) - width;       // Width of 0.2 right now
+    //PWM_output[i+4] = (((PWM_output[i+4] - min_PWM_output[1]) / abs(range[1])) * (2 * width)) - width;
     
-    steer_input = constrain(steer_input, -0.8, 0.8);
-    drive_input = constrain(drive_input, -0.8, 0.8);
+    //steer_input = constrain(steer_input, -0.8, 0.8);
+    //drive_input = constrain(drive_input, -0.8, 0.8);
+
+    steer_speed[i] = steer_speed[i] + PWM_output[i];        // Old integrator here
+    drive_speed[i] = drive_speed[i] + PWM_output[i+4];      // Old integrator here
+
+    //steer_speed[i] = (steer_input * throttle_cap) + PWM_output[i];    // Testing new controller here
+    //drive_speed[i] = (drive_input * throttle_cap) + PWM_output[i+4];  // Testing new controllre here
     
-    steer_speed[i] = constrain(steer_input + PWM_output[i], -1, 1);
-    drive_speed[i] = constrain(drive_input + PWM_output[i+4], -1, 1);
+    steer_speed[i] = constrain(steer_speed[i], -1, 1);
+    drive_speed[i] = constrain(drive_speed[i], -1, 1);
+
+    if (steer_rotation == 0) steer_speed[i] = 0;
+    if (drive_rotation == 0) drive_speed[i] = 0; 
+
+    //comp_steer[i] = (1 - alpha) * steer_speed[i];
+    //random_float_value = comp_steer[i] + alpha * comp_steer[i];
+
+    comp_steer[i] = alpha * (comp_steer[i]) + ((1 - alpha) * steer_speed[i]);
+    //comp_drive[i] = alpha * (comp_drive[i]) + ((1 - alpha) * drive_speed[i]);
 
     //steer_speed[i] = constrain(steer_speed[i], -1, 1);
     //drive_speed[i] = constrain(drive_speed[i], -1, 1);
@@ -268,10 +375,12 @@ void loop() {
   DATA_2.data = PWM_output[2];
   DATA_3.data = PWM_output[3];
 */
-
-  DATA_0.data = min_PWM_output[0];
+  
+  boolean_data.data = motor_stopped[0];
+  
+  //DATA_0.data = min_PWM_output[0];
   //DATA_1.data = min_PWM_output[1];
-  DATA_2.data = max_PWM_output[0];
+  //DATA_2.data = max_PWM_output[0];
   //DATA_3.data = max_PWM_output[1];
 
 /*
@@ -280,15 +389,53 @@ void loop() {
   DATA_2.data = motor_period[2];
   DATA_3.data = motor_period[3];
 */
+/*
+  DATA_0.data = rotation[0];
+  DATA_1.data = rotation[1];
+  DATA_2.data = rotation[2];
+  DATA_3.data = rotation[3];
+*/
+  //DATA_0.data = steer_rotation;
+  //DATA_1.data = drive_rotation;
+/*
+  DATA_0.data = comp_steer[0];
+  DATA_1.data = comp_steer[1];
+  DATA_2.data = comp_steer[2];
+  DATA_3.data = comp_steer[3];
+*/
+  //DATA_0.data = motor_counter[0];
+  //DATA_0.data = steer_rotation;
+  //DATA_0.data = motor_period[0];
+  //DATA_0.data = rotation[0];
+  //DATA_0.data = error[0];
+  //DATA_0.data = PWM_output[0];
+  //DATA_0.data = steer_speed[0];
+  //DATA_0.data = comp_steer[0];
+
+  DATA_0.data = steer_rotation;
+  DATA_1.data = rotation[0];
+  //DATA_1.data = motor_period[0];
+  //DATA_1.data = comp_period[0];
+  //DATA_2.data = steer_speed[0];
+  DATA_2.data = comp_steer[0];
+  //DATA_2.data = PWM_output[0];
+
+  //DATA_0.data = queue[0][0];
+  //if (motor_stopped[0]) DATA_0.data = 1;
+  //else DATA_0.data = 0;
+
   if (run_all_motors) {
     for (int i = 0; i < 4; i++) {
-      motor_debugging(var[i], steer_speed[i], 0);  
+      motor_debugging(var[i], comp_steer[i], 0); 
+      //motor_debugging(var[i], steer_input, 0); 
     }
   }
   else {
     for (int i = 0; i < 4; i++) {
-      motor_debugging(var[i], steer_input, 0);   
-    } 
+      //motor_debugging(var[i], steer_input * throttle_cap, 0);
+      motor_debugging(var[i], steer_input, 0);
+      //motor_debugging(var[i], comp_steer[i], 0);
+    }
   }
   
   for (int i = 0; i < 4; i++) {
@@ -302,6 +449,8 @@ void loop() {
   //temp_pub.publish(&temp);
   //testing_pub.publish(&testing);
 
+  //boolean_data_pub.publish(&boolean_data);
+
   DATA_0_pub.publish(&DATA_0);
   DATA_1_pub.publish(&DATA_1);
   DATA_2_pub.publish(&DATA_2);
@@ -310,6 +459,15 @@ void loop() {
   //temp_array_pub.publish(&temp_array);
 
   nh.spinOnce();
+}
+
+float convert_controller_to_speed(float input, float throttle_cap) {
+  float speed_output; 
+  
+  if (input == 0) speed_output = 0;
+  else if (input != 0) speed_output = throttle_cap * ((input * speed_cap * 11.2) - 0.624);
+  
+  return speed_output; 
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -349,12 +507,9 @@ void print_speed() {
 ////////////////////////////////////////////////////////////////////
 
 float PID(int motor, float setpoint, float current_value) {
-  if (setpoint == 0.0) setpoint = 0.1;
-
   for (int i = 0; i < 8; i++) {
     if (motor == i) {
-      error[i] = current_value - setpoint;
-      error[i] /= 1000;
+      error[i] = setpoint - current_value;
       sum[i] += error[i];
 
       if (sum[i] > 0.5) sum[i] = 0.5;
@@ -388,7 +543,7 @@ void initialize() {
   rotate_angle[2] -= M_PI / 4;
   rotate_angle[3] += M_PI / 4;
 
-  p_gain = 0.1; // Previous 2.1
+  p_gain = 0.0025; // Previous 2.1
   i_gain = 0.0;// Previous 0.25
   d_gain = 0.0; // Previous 0.1
 
@@ -409,6 +564,8 @@ void ros_init() {
   
   //nh.advertise(temp_pub);       // Debugging purposes -- Float32
   //nh.advertise(testing_pub);    // Debugging purposes -- Float32
+
+  nh.advertise(boolean_data_pub);
 
   nh.advertise(DATA_0_pub);
   nh.advertise(DATA_1_pub);

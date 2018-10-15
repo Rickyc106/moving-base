@@ -6,6 +6,7 @@ volatile bool motor_dir[4];
 
 unsigned short period[4];
 unsigned short comp_period[4];
+int counter[4];
 
 float alpha = 0.99; // 0.9
 
@@ -13,6 +14,8 @@ EasyTransfer ETout_drive;
 
 struct DRIVE_DATA_STRUCTURE {
   unsigned short filter_period[4];
+  //boolean wheel_stopped[4];
+  int wheel_counter[4];
 };
 
 DRIVE_DATA_STRUCTURE tx_drive;
@@ -40,15 +43,20 @@ void loop() {
   // Gear Overduction: Factor of 1.2 Faster output --- (2 * 7) / 1.2 = 11.66667
 
   for (int i = 0; i < 4; i++) {
+    //if (counter[i] >= 50) tx_drive.wheel_stopped[i] = true;
+    //else if (counter[i] < 50) tx_drive.wheel_stopped[i] = false;
+    
     if (stop_time[i] > start_time[i]) period[i] = stop_time[i] - start_time[i];   // Measure period between pulse (Time duration LOW or HIGH)
     else period[i] = start_time[i] - stop_time[i];
     
     if (period[i] > 15000) period[i] = 15000;   // Cap period to 15000 micros or 15 ms -- MAX 16 bit = 65,536 Decimal
 
     comp_period[i] = alpha * (comp_period[i]) + ((1 - alpha) * period[i]);    // Low pass filter to attenuate spike measurements
-    tx_drive.filter_period[i] = comp_period[i];
+    tx_drive.filter_period[i] = period[i];
+    tx_drive.wheel_counter[i] = counter[i];
 
     ETout_drive.sendData();
+    counter[i]++;
   }
 }
 
@@ -57,6 +65,8 @@ void loop() {
 /////
 
 ISR(PCINT0_vect) {
+  counter[3] = 0;
+  
   if (PINB & (0x01 << 0)) {
     start_time[3] = micros();
 
@@ -73,6 +83,8 @@ ISR(PCINT0_vect) {
 }
 
 ISR(PCINT2_vect) {    // Port D, PCINT16 - PCINT23
+  counter[2] = 0;
+  
   if (PIND & (0x01 << 6)) {
     start_time[2] = micros();
 
@@ -88,6 +100,8 @@ ISR(PCINT2_vect) {    // Port D, PCINT16 - PCINT23
 }
 
 void encoderA() {
+  counter[0] = 0;
+  
   if (PIND & (0x01 << 2)) {
     start_time[0] = micros();
 
@@ -104,6 +118,8 @@ void encoderA() {
 }
 
 void encoderB() {
+  counter[1] = 0;
+  
   if (PIND & (0x01 << 3)) {
     start_time[1] = micros();
 
