@@ -75,7 +75,13 @@ float PWM_output[8];
 float steer_input, drive_input;
 
 float steer_desired_speed, drive_desired_speed;
+
+double steer_time_step, drive_time_step;
+double comp_steer_time_step, comp_drive_time_step;
+
 double steer_desired_position[4], drive_desired_position[4];
+double prev_steer_desired_position[4], prev_drive_desired_position[4];
+
 float steer_pos_offset[4], drive_pos_offset[4];
 
 float error[8], sum[8], previous[8];
@@ -181,19 +187,9 @@ void setup() {
 }
 
 void loop() {
-  
   steer_desired_speed = convert_controller_to_speed(steer_input, 1.0);
   drive_desired_speed = convert_controller_to_speed(drive_input, 1.0);
 
-  for (int i = 0; i < 4; i++) {
-    if (var[i] == i) {
-      steer_desired_position[i] += steer_desired_speed * (micros() - previous_micros[i]) / (2 * 3.141592653589793 * 1000000);
-      drive_desired_position[i] += drive_desired_speed * (micros() - previous_micros[i]) / (2 * 3.141592653589793 * 1000000);
-
-      previous_micros[i] = micros();
-    }
-  }
-  
   for (int i = 0; i < 4; i++) {
     ETin_steer.receiveData();
     steer_speed[i] = rx_steer.filter_period[i];
@@ -202,6 +198,34 @@ void loop() {
     ETin_drive.receiveData();
     drive_speed[i] = rx_drive.filter_period[i];
     drive_position[i] = rx_drive.wheel_position[i] - drive_pos_offset[i];
+  }
+
+  for (int i = 0; i < 4; i++) {
+    if (var[i] == i) {
+      steer_time_step =  (micros() - previous_micros[i]) / (2 * 3.141592653589793 * 1000000);
+      steer_desired_position[i] += steer_desired_speed * steer_time_step;
+
+      comp_steer_time_step = (alpha) * comp_steer_time_step + (1 - alpha) * steer_time_step;
+      
+      if (abs(steer_desired_position[i] - prev_steer_desired_position[i]) > abs(steer_desired_speed * comp_steer_time_step) * 2) {
+        steer_desired_position[i] = prev_steer_desired_position[i];  
+      }
+
+      prev_steer_desired_position[i] = steer_desired_position[i];
+      
+      drive_time_step =  (micros() - previous_micros[i]) / (2 * 3.141592653589793 * 1000000);
+      drive_desired_position[i] += drive_desired_speed * drive_time_step;
+
+      comp_drive_time_step = (alpha) * comp_drive_time_step + (1 - alpha) * drive_time_step;
+      
+      if (abs(drive_desired_position[i] - prev_drive_desired_position[i]) > abs(drive_desired_speed * comp_drive_time_step) * 2) {
+        drive_desired_position[i] = prev_drive_desired_position[i];  
+      }
+
+      prev_drive_desired_position[i] = drive_desired_position[i];
+
+      previous_micros[i] = micros();
+    }
   }
 
   steer_input = constrain(steer_input, -0.8, 0.8);
@@ -231,10 +255,20 @@ void loop() {
   //DATA_2.data = steer_output[0];
   //DATA_3.data = comp_steer[0];
 
+  //DATA_0.data = drive_desired_position[0];
+  //DATA_1.data = drive_position[0];
+  //DATA_2.data = drive_output[0];
+  //DATA_3.data = comp_drive[0];
+
+  //DATA_0.data = steer_desired_position[0];
+  //DATA_1.data = steer_desired_position[1];
+  //DATA_2.data = steer_desired_position[2];
+  //DATA_3.data = steer_desired_position[3];
+  
   DATA_0.data = drive_desired_position[0];
-  DATA_1.data = drive_position[0];
-  DATA_2.data = drive_output[0];
-  DATA_3.data = comp_drive[0];
+  DATA_1.data = drive_desired_position[1];
+  DATA_2.data = drive_desired_position[2];
+  DATA_3.data = drive_desired_position[3];
   
   DATA_0_pub.publish(&DATA_0);
   DATA_1_pub.publish(&DATA_1);
