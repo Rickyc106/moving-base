@@ -36,6 +36,9 @@ std_msgs::Float32 DATA_1;
 std_msgs::Float32 DATA_2;
 std_msgs::Float32 DATA_3;
 
+//std_msgs::Float32MultiArray steer_pos;
+std_msgs::Float32MultiArray desired_motor_act;
+
 std_msgs::Float32MultiArray temp_array;
 
 //std_msgs::Float32MultiArray mag_array;
@@ -69,17 +72,19 @@ bool motor_dir[8];
 
 const byte numBytes = 10;
 
+const float pi = 3.141592653589793;
+
 boolean newData = false;
 
 float PWM_output[8];
 float steer_input, drive_input;
 
-float steer_desired_speed, drive_desired_speed;
+float steer_desired_speed[4], drive_desired_speed[4];
 
 double steer_time_step, drive_time_step;
 double comp_steer_time_step, comp_drive_time_step;
 
-double steer_desired_position[4], drive_desired_position[4];
+double steer_desired_position[4], drive_desired_position[4], steer_desired_fpos[4];
 double prev_steer_desired_position[4], prev_drive_desired_position[4];
 
 float steer_pos_offset[4], drive_pos_offset[4];
@@ -104,6 +109,15 @@ struct DRIVE_DATA_STRUCTURE {
 
 STEER_DATA_STRUCTURE rx_steer;
 DRIVE_DATA_STRUCTURE rx_drive;
+
+void desiredMotorActCb(const std_msgs::Float32MultiArray& msg) {
+  //Set desired steer final angle
+  for (int i = 0; i < 4; i++) {
+    steer_desired_fpos[i] = msg.data[i];
+    steer_desired_speed[i] = msg.data[i+4];
+    drive_desired_speed[i] = msg.data[i+8];
+  }
+}
 
 void xbox_cb(const sensor_msgs::Joy& msg) {
   steer_angle = atan2(msg.axes[1], -msg.axes[0]);
@@ -169,10 +183,14 @@ void xbox_cb(const sensor_msgs::Joy& msg) {
   //testing.data = 90 + msg.axes[1] * 90;
 }
 
-ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
+//PLAYSTATION CONTROLLER
+//ros::Subscriber < sensor_msgs::Joy > joy_sub("joy_queued", &xbox_cb);
 
 //ros::Publisher temp_pub("temp_data", &temp);
 //ros::Publisher testing_pub("testing", &testing);
+
+ros::Subscriber < std_msgs::Float32MultiArray > desired_motor_act_sub("MOTOR_ACT", &desiredMotorActCb);
+//ros::Publisher steer_pos_pub("STEER_POS", &steer_pos); 
 
 ros::Publisher DATA_0_pub("DATA_0", &DATA_0);
 ros::Publisher DATA_1_pub("DATA_1", &DATA_1);
@@ -187,8 +205,9 @@ void setup() {
 }
 
 void loop() {
-  steer_desired_speed = convert_controller_to_speed(steer_input, 1.0);
-  drive_desired_speed = convert_controller_to_speed(drive_input, 1.0);
+  //Playstation Controller Input
+  //steer_desired_speed = convert_controller_to_speed(steer_input, 1.0);
+  //drive_desired_speed = convert_controller_to_speed(drive_input, 1.0);
 
   for (int i = 0; i < 4; i++) {
     ETin_steer.receiveData();
@@ -201,31 +220,34 @@ void loop() {
   }
 
   for (int i = 0; i < 4; i++) {
-    if (var[i] == i) {
-      steer_time_step =  (micros() - previous_micros[i]) / (2 * 3.141592653589793 * 1000000);
-      steer_desired_position[i] += steer_desired_speed * steer_time_step;
 
-      comp_steer_time_step = (alpha) * comp_steer_time_step + (1 - alpha) * steer_time_step;
-      
-      if (abs(steer_desired_position[i] - prev_steer_desired_position[i]) > abs(steer_desired_speed * comp_steer_time_step) * 2) {
-        steer_desired_position[i] = prev_steer_desired_position[i];  
-      }
-
-      prev_steer_desired_position[i] = steer_desired_position[i];
-      
-      drive_time_step =  (micros() - previous_micros[i]) / (2 * 3.141592653589793 * 1000000);
-      drive_desired_position[i] += drive_desired_speed * drive_time_step;
+      //Always drive
+      drive_time_step =  (2* pi) * (micros() - previous_micros[i]) / (1000000);
+      drive_desired_position[i] = drive_position[i] + drive_desired_speed[i] * drive_time_step;
 
       comp_drive_time_step = (alpha) * comp_drive_time_step + (1 - alpha) * drive_time_step;
       
-      if (abs(drive_desired_position[i] - prev_drive_desired_position[i]) > abs(drive_desired_speed * comp_drive_time_step) * 2) {
+      if (abs(drive_desired_position[i] - prev_drive_desired_position[i]) > abs(drive_desired_speed[i] * comp_drive_time_step) * 2) {
         drive_desired_position[i] = prev_drive_desired_position[i];  
       }
 
       prev_drive_desired_position[i] = drive_desired_position[i];
 
+      // Only increment if steer_desired_fpos is not reached **NOTE: only positive speeds (CCW) when absolute encoders are installed, this needs to be UPDATED
+      if(steer_position[i] < steer_desired_fpos[i]) {
+        steer_time_step =  (2* pi) * (micros() - previous_micros[i]) / (1000000);
+        steer_desired_position[i] = steer_position[i] + steer_desired_speed[i] * steer_time_step;
+  
+        comp_steer_time_step = (alpha) * comp_steer_time_step + (1 - alpha) * steer_time_step;
+        
+        if (abs(steer_desired_position[i] - prev_steer_desired_position[i]) > abs(steer_desired_speed[i] * comp_steer_time_step) * 2) {
+          steer_desired_position[i] = prev_steer_desired_position[i];  
+        }
+  
+        prev_steer_desired_position[i] = steer_desired_position[i];
+      }
+
       previous_micros[i] = micros();
-    }
   }
 
   steer_input = constrain(steer_input, -0.8, 0.8);
@@ -247,7 +269,7 @@ void loop() {
   
   for (int i = 0; i < 4; i++) {
     //motor_debugging(var[i], comp_steer[i], comp_drive[i]); // Drive Speed is PID output speed, drive input is input from controller
-    motor_debugging(var[i], comp_steer[i], comp_drive[i]);
+    set_motor_speed(i, comp_steer[i], comp_drive[i]);
   }
 
   //DATA_0.data = steer_desired_position[0];
@@ -265,15 +287,16 @@ void loop() {
   //DATA_2.data = steer_desired_position[2];
   //DATA_3.data = steer_desired_position[3];
   
-  DATA_0.data = drive_desired_position[0];
-  DATA_1.data = drive_desired_position[1];
-  DATA_2.data = drive_desired_position[2];
-  DATA_3.data = drive_desired_position[3];
+  DATA_0.data = drive_position[0];
+  DATA_1.data = drive_output[1];
+  DATA_2.data = drive_desired_position[1];
+  DATA_3.data = drive_desired_speed[1];
   
   DATA_0_pub.publish(&DATA_0);
   DATA_1_pub.publish(&DATA_1);
   DATA_2_pub.publish(&DATA_2);
   DATA_3_pub.publish(&DATA_3);
+  //steer_pos_pub.publish(&steer_pos);
 
   nh.spinOnce();
 }
@@ -409,7 +432,9 @@ void initialize() {
 void ros_init() {
   nh.initNode();  // Create ROS nodehandle
 
-  nh.subscribe(joy_sub);    // Subscribe to joy controller message
+  //nh.subscribe(joy_sub);    // Subscribe to joy controller message
+
+  nh.subscribe(desired_motor_act_sub);
   
   //nh.advertise(temp_pub);       // Debugging purposes -- Float32
   //nh.advertise(testing_pub);    // Debugging purposes -- Float32
@@ -418,6 +443,7 @@ void ros_init() {
   nh.advertise(DATA_1_pub);
   nh.advertise(DATA_2_pub);
   nh.advertise(DATA_3_pub);
+  //nh.advertise(steer_pos_pub);
   
   nh.advertise(temp_array_pub); // Debugging purposes -- Float32MultiArray
   
@@ -450,7 +476,7 @@ float vector_sum(float steer_angle, float steer_mag, float rotate_angle, float r
 //        Variable 'drive' is the speed of CIM motor              //
 ////////////////////////////////////////////////////////////////////
 
-void motor_debugging(int var, float drive, float steer) {
+void set_motor_speed(int var, float drive, float steer) {
   switch (var) {
     case 0:
       motors[0].writeMicroseconds(1500 + (drive * 500 * speed_cap));    // DRIVE MOTOR -- 32 max right now

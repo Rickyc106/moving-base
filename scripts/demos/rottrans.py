@@ -6,8 +6,7 @@ import sys
 
 prev_theta = float( sys.argv[1] )
 
-def crabSteer(angle, stspeed, drspeed):
-	steer_final_angle = angle
+def rotAndTranslate(angle, stspeed, drspeed):
 	steer_speed = stspeed
 	drive_speed = drspeed
 
@@ -16,7 +15,7 @@ def crabSteer(angle, stspeed, drspeed):
 	rate = rospy.Rate(100) #100Hz
 	msg = Float32MultiArray()
 
-	msg.data = [steer_final_angle, steer_final_angle, steer_final_angle, steer_final_angle,
+	msg.data = [prev_theta, prev_theta+0.83, prev_theta, prev_theta+0.33,
 	 steer_speed, steer_speed, steer_speed, steer_speed,
 	 drive_speed, drive_speed, drive_speed, drive_speed];
 	
@@ -27,10 +26,5 @@ def crabSteer(angle, stspeed, drspeed):
 if __name__ == '__main__':
 	try:
 		print(prev_theta)
-		crabSteer(prev_theta+0.25, 2, 1.4)
-		time.sleep(5)
-		crabSteer(prev_theta+0.5, 1, 2.4)
-		time.sleep(5)
-		crabSteer(prev_theta+0.75, 2, 1.4)
-		time.sleep(5)
+		rotAndTranslate(prev_theta, 1, 2.4)
 	except rospy.ROSInterruptException: pass
