@@ -1,12 +1,27 @@
 <launch>
-    <node pkg="moving_base" type="queue_reducer.py" name="manual_control"/>
-    <node pkg="joy" type="joy_node" name="joystick_node">
-    	<!--param name="dev" type="/dev/input/js1"/>
-    	<param name="autorepeat_rate" type="15"/>
-    	<param name="deadzone" type="0.0"/-->
+    <node pkg="moving_base" type="setup.py" name="setup_node" output="screen"/>
+    <!--node pkg="joy" type="joy_node" name="joystick_node" output="screen">
+    	<param name="dev" value="/dev/input/js0"/>
+    	<param name="autorepeat_rate" value="15.0"/>
+    	<param name="deadzone" value="0.0"/>
+    </node-->
+    <!--node pkg="moving_base" type="simple_motor.py" name="manual_control" output="screen"/-->
+    <!--node pkg="moving_base" type="visualize.py" name="visualize_vector" output="screen"/-->
+    <node pkg="moving_base" type="independent_crab.py" name="independent_crab_node" output="screen"/>
+    <node pkg="moving_base" type="pid.py" name="pid_controller" output="screen">
+        <param name="manual_mode" value="True"/>
+        <param name="p_gain" value="0.2"/>
+        <param name="i_gain" value="0.0"/>
+        <param name="d_gain" value="0.0"/>
+        <param name="integral_limit" value="0.5"/>
     </node>
-    <node pkg="rosserial_python" type="serial_node.py" name="serial_node">
+    <!--node pkg="rosserial_python" type="serial_node.py" name="serial_node" output="screen">
         <param name="port" value="/dev/ttyACM0"/>
         <param name="baud" value="57600"/>
+    </node-->
+    <node pkg="moving_base" type="serial_node.py" name="serial_node" output="screen">
+        <param name="port" value="/dev/ttyACM0"/>
+        <param name="baud" value="115200"/>
+        <param name="timeout" value="1"/>
     </node>
 </launch>
